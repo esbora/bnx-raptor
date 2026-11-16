@@ -1,0 +1,43 @@
+# "v0.3.0" gibi bir etiket (tag) gönderildiğinde:
+# testler -> sürüm kontrolü -> Windows .exe -> ZIP -> GitHub Release
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q tests
+
+      - name: version.py etiketle aynı mı?
+        shell: pwsh
+        run: |
+          $v = python -c "from version import __version__; print(__version__)"
+          if ("v$v" -ne "${{ github.ref_name }}") {
+            throw "version.py ($v) ile etiket (${{ github.ref_name }}) uyuşmuyor"
+          }
+
+      - name: exe oluştur
+        run: >
+          pyinstaller --noconfirm --windowed --name BnX-Raptor
+          --hidden-import win32com.client --hidden-import pythoncom main.py
+
+      - name: ZIP paketle (config.json YOK – büro ayarları korunur)
+        shell: pwsh
+        run: |
+          Copy-Item config.example.json dist/BnX-Raptor/
+          Compress-Archive -Path dist/BnX-Raptor -DestinationPath "BnX-Raptor-${{ github.ref_name }}.zip"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: BnX-Raptor-*.zip
+          body_path: CHANGELOG-aktuell.md
+          fail_on_unmatched_files: true
