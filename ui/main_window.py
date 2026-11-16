@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import threading
+import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QUrl, Signal
+from PySide6.QtCore import QEventLoop, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
@@ -24,6 +25,40 @@ from .akten_tab import AktenTab
 from .kanzlei_dialog import KanzleiDialog
 
 
+def im_hintergrund(fn, frist_sekunden: float):
+    """fn'i ayrı iş parçacığında çalıştırır; bu sırada pencere tepki vermeye devam eder.
+
+    Word'ün kendi zaman sınırı (WordService) normalde önce devreye girer. Bu frist sadece
+    son güvencedir: dolarsa iş parçacığı arkada bırakılır ve Almanca hata verilir.
+    """
+    from core.word_service import WordError, zeitlimit_meldung
+
+    sonuc: dict = {}
+
+    def lauf():
+        try:
+            sonuc["wert"] = fn()
+        except BaseException as e:  # noqa: BLE001
+            sonuc["fehler"] = e
+
+    t = threading.Thread(target=lauf, daemon=True)
+    t.start()
+    ende = time.monotonic() + frist_sekunden
+    schleife = QEventLoop()
+    timer = QTimer()
+    timer.timeout.connect(
+        lambda: schleife.quit() if (not t.is_alive() or time.monotonic() > ende) else None)
+    timer.start(100)
+    if t.is_alive():
+        schleife.exec()
+    timer.stop()
+    if t.is_alive():
+        raise WordError(zeitlimit_meldung(frist_sekunden, beendet=False))
+    if "fehler" in sonuc:
+        raise sonuc["fehler"]
+    return sonuc.get("wert")
+
+
 class _UpdateSignal(QObject):
     gefunden = Signal(object)        # ReleaseInfo | None
 
@@ -32,7 +67,7 @@ class ReviewDialog(QDialog):
     """Bulunan değerleri kaynağıyla gösterir; avukat düzeltir, seçer ve onaylar."""
 
     TRENNER = "   —   "                    # açılır listede "adres — kaynak"
-    WARN_WOERTER = ("prüfen", "nicht", "auswählen", "weichen", "manuell")
+    WARN_WOERTER = ("prüfen", "nicht", "keine", "auswählen", "weichen", "manuell")
 
     def __init__(self, parent, doc: Path, fields: list[Field]):
         super().__init__(parent)
@@ -331,13 +366,25 @@ class MainWindow(QMainWindow):
         self.add_files([Path(n) for n in names])
 
     def run_all(self):
-        from core.word_service import WordService
-
         wf = self.current_workflow()
         paths = [Path(self.files.item(i).text()) for i in range(self.files.count())]
         if not paths:
             self.status.setText("Keine Dokumente in der Liste.")
             return
+        zeit = float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90))
+        # Word işi arka planda: pencere tepki vermeye devam eder, takılırsa süre sonunda biter
+        self.ctx.im_hintergrund = lambda fn, frist=None: im_hintergrund(fn, frist or zeit + 30)
+        self.b_run.setEnabled(False)                # işlem sürerken ikinci kez başlatılamaz
+        try:
+            done = self._dokumente_bearbeiten(wf, paths)
+        finally:
+            self.b_run.setEnabled(True)
+        self.status.setText(f"{done} von {len(paths)} Dokument(en) bearbeitet.")
+        self.files.clear()
+
+    def _dokumente_bearbeiten(self, wf, paths: list[Path]) -> int:
+        from core.word_service import WordService
+
         done = 0
         for p in paths:
             if WordService.unsaved_in_running_word(p):
@@ -348,6 +395,7 @@ class MainWindow(QMainWindow):
             try:
                 QGuiApplication.setOverrideCursor(Qt.WaitCursor)
                 try:
+                    self.status.setText(f"{p.name}: Word liest das Dokument …")
                     fields = wf.prepare(p)
                 finally:
                     QGuiApplication.restoreOverrideCursor()
@@ -359,6 +407,7 @@ class MainWindow(QMainWindow):
 
                 QGuiApplication.setOverrideCursor(Qt.WaitCursor)
                 try:
+                    self.status.setText(f"{p.name}: PDF und Entwurf werden erstellt …")
                     res = wf.execute(p, dlg.values())
                 finally:
                     QGuiApplication.restoreOverrideCursor()
@@ -370,8 +419,7 @@ class MainWindow(QMainWindow):
                 self.journal.add(wf.id, str(p), status="fehler",
                                  meldung=f"{e}\n{traceback.format_exc()}")
                 QMessageBox.critical(self, "Fehler", f"{p.name}:\n{e}")
-        self.status.setText(f"{done} von {len(paths)} Dokument(en) bearbeitet.")
-        self.files.clear()
+        return done
 
     # --- Geçmiş sekmesi ---
     def _build_history_tab(self) -> QWidget:

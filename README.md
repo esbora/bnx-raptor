@@ -53,4 +53,4 @@ Yeni sürüm yayınlamak için: **RELEASE.md**
 - İlk açılışta "Kanzleidaten" penceresi çıkar; büro bilgilerini girin.
 - Sağ tık menüsüne eklemek için: `Win+R` → `shell:sendto` → `BnX-Raptor.exe` için bir kısayol oluşturun.
 - **Outlook:** Varsayılan ayar `"mail_modus": "auto"`. Klasik Outlook varsa taslak orada açılır, yoksa `.eml` taslağı kullanılır. Yeni Outlook'ta gelen cevaplar sürükle-bırak ile alınır.
-- **Word şablonu:** İçerik denetimlerinin etiketleri (Tag) `Empfaenger_Email`, `Versicherungsnummer` ve isteğe bağlı `Mandant_Email` ile `Versicherer` olmalı.
+- **Word şablonu:** İçerik denetimlerinin etiketleri (Tag) `Empfaenger_Email`, `Versicherungsnummer` ve isteğe bağlı `Mandant_Email` ile `Versicherer` olmalı. İçerik denetimi yoksa program metinden okur; bulunan tüm numaralar (Versicherungsnummer, Schaden-Nr. …) kontrol penceresinde seçilebilir ve e-posta konusu seçilen numaranın türüne göre yazılır (`betreff_vorlage`: `{nummer_art}: {nummer}`).

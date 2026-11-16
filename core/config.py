@@ -14,7 +14,7 @@ DEFAULTS: dict = {
         "Versicherungsnummer", "Versicherungsschein-Nr.", "Versicherungsscheinnummer",
         "VS-Nr.", "Vers.-Nr.", "Schadennummer", "Schaden-Nr.",
     ],
-    "betreff_vorlage": "Versicherungsnummer: {nummer}",
+    "betreff_vorlage": "{nummer_art}: {nummer}",   # {nummer_art} = Versicherungsnummer | Schaden-Nr.
     "mail_text_html": (
         "<p>Sehr geehrte Damen und Herren,</p>"
         "<p>in der oben genannten Angelegenheit übersenden wir Ihnen anliegend unser Schreiben.</p>"
@@ -24,7 +24,7 @@ DEFAULTS: dict = {
     "pdf_ordner": "",                 # boş = Word dosyasının yanına
     "pdf_dateiname": "{datum}_{nummer}_{dokument}",
     "pdfa": True,
-    "mandant_betreff_vorlage": "Ihre Angelegenheit – Versicherungsnummer {nummer}",
+    "mandant_betreff_vorlage": "Ihre Angelegenheit – {nummer_art} {nummer}",
     "mandant_text_html": (
         "<p>Guten Tag,</p>"
         "<p>zu Ihrer Information erhalten Sie anbei eine Kopie unseres heutigen Schreibens "
@@ -41,7 +41,8 @@ DEFAULTS: dict = {
     "update_repo": "esbora/BnX-Raptor",  # GitHub "kullanici/repo" – boş = güncelleme kontrolü kapalı
     "update_pruefen": True,
     "signatur_quelle": "outlook",     # "outlook" (Outlook imzası) | "programm" (Kanzleidaten'dan)
-    "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
+    "daten_ordner": "",
+    "word_zeitlimit_sekunden": 90,    # gizli Word penceresi takılırsa işlem bu süre sonunda biter               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
     # --- Versicherer-Adressbuch (0.3) ---
     "feld_versicherer": "Versicherer",  # Word içerik denetiminin etiketi (Tag/Title)
     # Adres bloğunda sigorta satırını tanıyan kelimeler. >= 8 harf: kelime içinde de aranır,

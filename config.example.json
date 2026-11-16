@@ -13,13 +13,13 @@
     "Schadennummer",
     "Schaden-Nr."
   ],
-  "betreff_vorlage": "Versicherungsnummer: {nummer}",
+  "betreff_vorlage": "{nummer_art}: {nummer}",
   "mail_text_html": "<p>Sehr geehrte Damen und Herren,</p><p>in der oben genannten Angelegenheit übersenden wir Ihnen anliegend unser Schreiben.</p><p>Mit freundlichen Grüßen</p>",
   "mail_modus": "auto",
   "pdf_ordner": "",
   "pdf_dateiname": "{datum}_{nummer}_{dokument}",
   "pdfa": true,
-  "mandant_betreff_vorlage": "Ihre Angelegenheit – Versicherungsnummer {nummer}",
+  "mandant_betreff_vorlage": "Ihre Angelegenheit – {nummer_art} {nummer}",
   "mandant_text_html": "<p>Guten Tag,</p><p>zu Ihrer Information erhalten Sie anbei eine Kopie unseres heutigen Schreibens an die Versicherung.</p><p>Mit freundlichen Grüßen</p>",
   "mandant_info_text_html": "<p>Guten Tag,</p><p>anbei erhalten Sie zu Ihrer Information die aktuellen Unterlagen in Ihrer Angelegenheit.</p><p>Mit freundlichen Grüßen</p>",
   "feld_mandant_email": "Mandant_Email",
@@ -29,6 +29,7 @@
   "update_pruefen": true,
   "signatur_quelle": "outlook",
   "daten_ordner": "",
+  "word_zeitlimit_sekunden": 90,
   "feld_versicherer": "Versicherer",
   "versicherer_stichwoerter": [
     "versicherung",

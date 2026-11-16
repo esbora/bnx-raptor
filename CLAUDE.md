@@ -51,7 +51,7 @@ main.py                 başlangıç; komut satırı argümanları = listeye ekl
 version.py              __version__ (TEK kaynak)
 core/                   ortak servisler – iş akışları bunları kullanır, aynı kod tekrar yazılmaz
   config.py             DEFAULTS, load_config(), app_dir(), data_dir(cfg)
-  extractor.py          metinden e-posta/numara bulma            [saf Python]
+  extractor.py          metinden e-posta/numara bulma (tüm numaralar + türü), konu  [saf Python]
   eingang.py            numara eşleştirme, .eml okuma, dosya adı  [saf Python]
   kanzlei.py            Kanzlei verisi, IBAN/USt-IdNr. kontrolü, imza HTML'i  [saf Python]
   update.py             sürüm karşılaştırma, GitHub sorgusu       [saf Python]
@@ -59,7 +59,7 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   journal.py            SQLite: vorgaenge (art: ausgang|mandant|eingang|entwurf) + akten
   entwurf.py            entwurf_erstellen(ctx, MailDraft, eml_klasoru) – TÜM taslaklar buradan geçer
   mail_service.py       OutlookClassicDrafter, EmlDrafter       [COM / saf]
-  word_service.py       Word okuma, PDF/A                        [COM]
+  word_service.py       Word okuma, PDF/A; zaman sınırı (sadece kendi Word sürecini kapatır)  [COM]
   outlook_eingang.py    gelen kutusu arama, .msg kaydetme        [COM]
   eingang_service.py    gelen e-postayı kaydetme + günlüğe yazma
 workflows/
@@ -118,10 +118,11 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 
 - [x] 0.1 – Sigorta mektubu → PDF/A → Outlook/.eml taslağı, kontrol penceresi, işlem geçmişi
 - [x] 0.2 – Büro bilgileri ve logo, imza, müvekkile kopya, Akten sekmesi, gelen cevapları içe aktarma, güncelleme uyarısı, GitHub release
-- [x] 0.3 – Versicherer-Adressbuch (kod `v0.3.0-entwicklung` dalına push edildi; `main`'e birleştirme = otomatik Release, ayrı onay gerekir)
+- [x] 0.3 – Versicherer-Adressbuch; numara seçimi (Versicherungsnummer / Schaden-Nr., konu türe göre); büro adresi otomatik hariç; Word zaman sınırı (kod `v0.3.0-entwicklung` dalında; `main`'e birleştirme = otomatik Release, ayrı onay gerekir)
 - [x] Windows'ta hayali mektuplarla test (Word → kontrol penceresi → PDF/A → klasik Outlook)
-- [ ] **Bekliyor:** Yeni Outlook ile doğrudan doğrulama
-- [ ] **Bekliyor:** Gerçek büro şablonu/antetiyle test (kişisel bilgileri çıkarılmış örnek gerekli; arama kalıplarının ayarlanması)
+- [x] Büro şablonunun anonim kopyasıyla test (2026-11-16): sigorta adı, alıcı, numara türü, PDF anteti, klasik Outlook taslağı (konu + ek). Şablonda içerik denetimi yok; numara/e-posta sarı vurgulu (PDF'te de görünür); sağ sütundaki metin kutusu sabit yükseklikte ve taşıyor → "Aktenzeichen" değeri Word'de ve PDF'te görünmüyor (şablon düzeltmesi, kod değil)
+- [ ] **Bekliyor:** Yeni Outlook ile doğrudan doğrulama (bu bilgisayarda yeni Outlook'ta hesap yok)
+- [ ] **Bekliyor:** Büro bilgisayarında gerçek şablonla son kontrol (Word/Outlook sürümü, Office oturumu)
 - [x] GitHub deposu: https://github.com/esbora/BnX-Raptor (herkese açık); `update_repo` varsayılan olarak ayarlı
 - [ ] Büronun Word şablonuna içerik denetimlerinin eklenmesi
 

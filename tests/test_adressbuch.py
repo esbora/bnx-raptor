@@ -246,6 +246,9 @@ def test_name_korrigiert_aktualisiert_vorschlag(ctx):
 
 
 class _WordDummy:
+    def __init__(self, *a, **k):
+        pass
+
     def __enter__(self):
         return self
 

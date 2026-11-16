@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from core.eingang import eml_lesen, finde_referenz
 from core.eingang_service import eml_ablegen, protokollieren, zielordner
 from core.entwurf import entwurf_erstellen
+from core.extractor import betreff as betreff_bilden
 from core.extractor import is_valid_email
 from core.journal import ARTEN
 from core.mail_service import MailDraft
@@ -244,7 +245,7 @@ class AktenTab(QWidget):
             return
         try:
             msg = entwurf_erstellen(self.ctx, MailDraft(
-                to=empf.strip(), subject=betreff.format(nummer=ref), html_body=text,
+                to=empf.strip(), subject=betreff_bilden(betreff, ref, akte.get("nummer_art", "")), html_body=text,
                 attachments=dateien), Path(akte["ordner"]) if akte["ordner"] else Path.home())
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Fehler", str(e))

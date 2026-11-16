@@ -16,6 +16,10 @@ class AppContext:
         self.kanzlei_store = kanzlei_store
         self.journal = journal
         self._adressbuch = None
+        # Word işi bunun üzerinden çalışır. Arayüz bunu "arka planda, zaman sınırlı" bir
+        # çağrıyla değiştirir; testlerde ve varsayılan olarak doğrudan çağrılır.
+        # Not: SQLite (journal/adres defteri) sadece ana iş parçacığında kullanılabilir.
+        self.im_hintergrund = lambda fn, frist=None: fn()
 
     @property
     def adressbuch(self):

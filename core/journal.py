@@ -35,9 +35,10 @@ MIGRATIONEN = [
     ("vorgaenge", "art", "TEXT DEFAULT 'ausgang'"),
     ("vorgaenge", "quelle_id", "TEXT DEFAULT ''"),
     ("vorgaenge", "benutzer", "TEXT DEFAULT ''"),
+    ("akten", "nummer_art", "TEXT DEFAULT ''"),      # 0.3: Versicherungsnummer | Schaden-Nr.
 ]
 
-AKTEN_FELDER = ("ordner", "versicherer_email", "mandant_name", "mandant_email", "notiz")
+AKTEN_FELDER = ("ordner", "versicherer_email", "mandant_name", "mandant_email", "notiz", "nummer_art")
 
 
 def _jetzt() -> str:
