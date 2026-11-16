@@ -122,3 +122,27 @@ def test_eigene_domain_aus_kanzleidaten(tmp_path):
     store.speichern(Kanzlei(name="K", email="info@muster-recht.de"))
     ctx = AppContext(dict(DEFAULTS), store, None)
     assert "muster-recht.de" in ctx.eigene_domains()
+
+
+from workflows.versicherung_brief import mandant_vorschlag  # noqa: E402
+
+
+def test_mandant_quelle_wird_richtig_angezeigt():
+    # Şablon alanı varsa kaynak "aus Vorlage" olmalı, kayıtlı dosya değil
+    assert mandant_vorschlag("m@example.com", "alt@example.com") == ("m@example.com", "aus Vorlage")
+    assert mandant_vorschlag("", "alt@example.com") == ("alt@example.com", "aus Akte")
+    assert mandant_vorschlag("", "") == ("", "leer = keine Kopie")
+
+
+def test_typischer_brief_ohne_vorlagenfelder():
+    # Windows testindeki hayali mektup A'nın Word'den okunan metni (\r = paragraf)
+    text = "\r".join([
+        "TESTKANZLEI Fiktiv & Partner", "Tel. 0000 000000 · E-Mail: test@kanzlei-muster.example.net",
+        "Fiktiva Versicherung AG", "Per E-Mail: schaden.fiktiva@example.com", "",
+        "Unser Zeichen: 0815/26 TB", "Versicherungsnummer: FV-4711-2026-0815",
+        "Schaden-Nr.: SCH 2026/99123", "Schadentag: 01.10.2026",
+    ])
+    r = extract(text, {}, dict(DEFAULTS, eigene_domains=["kanzlei-muster.example.net"]))
+    assert (r.email, r.quelle_email) == ("schaden.fiktiva@example.com", "text")
+    assert r.email_candidates == ["schaden.fiktiva@example.com"]
+    assert (r.nummer, r.quelle_nummer) == ("FV-4711-2026-0815", "text")

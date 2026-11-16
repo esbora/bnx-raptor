@@ -8,7 +8,7 @@ Bu dosya Claude Code için proje talimatıdır. Her oturumun başında okunur.
 Amacı avukatın tekrar eden yazışma işlerini tek ekrandan, birkaç tıklamayla yapmaktır.
 Program zamanla büyüyecek; her yeni iş ayrı bir **iş akışı (workflow) modülü** olarak eklenecek.
 
-Mevcut sürüm: `version.py` dosyasına bakın (şu an 0.2.0). Değişiklikler `CHANGELOG.md` dosyasında.
+Mevcut sürüm: `version.py` dosyasına bakın (şu an 0.3.0). Değişiklikler `CHANGELOG.md` dosyasında.
 
 ## 2. Dil ve iletişim
 
@@ -36,7 +36,7 @@ Mevcut sürüm: `version.py` dosyasına bakın (şu an 0.2.0). Değişiklikler `
 
 - Python 3.12+, arayüz **PySide6**, Office otomasyonu **pywin32 (COM)**
 - Paketleme: **PyInstaller** → `BnX-Raptor.exe` (büroda Python kurulu olması gerekmez)
-- Veri: SQLite (`verlauf.sqlite`, tablolar `vorgaenge` ve `akten`), büro bilgileri `kanzlei.json` ve logo dosyası
+- Veri: SQLite (`verlauf.sqlite`, tablolar `vorgaenge`, `akten` ve `versicherer`), büro bilgileri `kanzlei.json` ve logo dosyası
 - Ayarlar: exe'nin yanındaki `config.json` (ilk açılışta oluşturulur). Örnek: `config.example.json`
 - Testler: pytest. GitHub Actions: her push'ta testler, `v*` etiketiyle release
 - Hedef sistem: Windows 10/11, Microsoft Word, klasik Outlook.
@@ -55,6 +55,7 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   eingang.py            numara eşleştirme, .eml okuma, dosya adı  [saf Python]
   kanzlei.py            Kanzlei verisi, IBAN/USt-IdNr. kontrolü, imza HTML'i  [saf Python]
   update.py             sürüm karşılaştırma, GitHub sorgusu       [saf Python]
+  adressbuch.py         Versicherer-Adressbuch: ad bulma/eşleştirme, e-posta önerisi, tablo  [saf Python]
   journal.py            SQLite: vorgaenge (art: ausgang|mandant|eingang|entwurf) + akten
   entwurf.py            entwurf_erstellen(ctx, MailDraft, eml_klasoru) – TÜM taslaklar buradan geçer
   mail_service.py       OutlookClassicDrafter, EmlDrafter       [COM / saf]
@@ -62,13 +63,14 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   outlook_eingang.py    gelen kutusu arama, .msg kaydetme        [COM]
   eingang_service.py    gelen e-postayı kaydetme + günlüğe yazma
 workflows/
-  base.py               AppContext(cfg, kanzlei_store, journal), Workflow, Field, Result
+  base.py               AppContext(cfg, kanzlei_store, journal, adressbuch), Workflow, Field, Result
   __init__.py           ALL_WORKFLOWS kaydı
   versicherung_brief.py iş akışı 1 (+ isteğe bağlı müvekkil kopyası)
 ui/
   main_window.py        sekmeler: Bearbeiten / Akten / Verlauf; menüler; güncelleme şeridi
   akten_tab.py          dosya listesi, dosya geçmişi, içe aktarma, e-posta taslağı
   kanzlei_dialog.py     büro bilgileri + logo + imza önizlemesi
+  adressbuch_dialog.py  Versicherer-Adressbuch: görme, arama, düzenleme, ekleme, silme
 ```
 
 ### Workflow sözleşmesi
@@ -81,6 +83,8 @@ class Workflow:
     def prepare(path) -> list[Field]           # oku, kontrol penceresinin alanlarını döndür
     def execute(path, values) -> Result        # onaylanan değerlerle işi yap
 ```
+
+`Field` kontrol penceresini tarif eder: `hint` (kaynak), `choice_hints` (seçenek başına kaynak), `must_choose` (önceden seçili değer yok, kullanıcı seçer), `on_change` (bu alan değişince bağlı alanları yeniden hesapla).
 
 Yeni iş akışı eklemek için `workflows/` altına yeni bir dosya yazılır ve `ALL_WORKFLOWS` listesine bir satır eklenir. Kontrol penceresi `Field` listesinden otomatik oluşur.
 
@@ -114,14 +118,17 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 
 - [x] 0.1 – Sigorta mektubu → PDF/A → Outlook/.eml taslağı, kontrol penceresi, işlem geçmişi
 - [x] 0.2 – Büro bilgileri ve logo, imza, müvekkile kopya, Akten sekmesi, gelen cevapları içe aktarma, güncelleme uyarısı, GitHub release
-- [ ] Windows'ta gerçek bir büro mektubuyla ilk test (arama kalıplarının ayarlanması)
+- [x] 0.3 – Versicherer-Adressbuch (kod `v0.3.0-entwicklung` dalına push edildi; `main`'e birleştirme = otomatik Release, ayrı onay gerekir)
+- [x] Windows'ta hayali mektuplarla test (Word → kontrol penceresi → PDF/A → klasik Outlook)
+- [ ] **Bekliyor:** Yeni Outlook ile doğrudan doğrulama
+- [ ] **Bekliyor:** Gerçek büro şablonu/antetiyle test (kişisel bilgileri çıkarılmış örnek gerekli; arama kalıplarının ayarlanması)
 - [x] GitHub deposu: https://github.com/esbora/BnX-Raptor (herkese açık); `update_repo` varsayılan olarak ayarlı
 - [ ] Büronun Word şablonuna içerik denetimlerinin eklenmesi
 
 ## 9. Yol haritası (her madde ayrı onayla yapılır)
 
 **Kısa vade**
-1. **Versicherer-Adressbuch:** Sigorta adı → e-posta adresi. Onaylanan işlemlerden öğrenir.
+1. ~~**Versicherer-Adressbuch**~~ – 0.3.0'da yapıldı.
 2. **Kendi dosya numarası (Aktenzeichen):** Konu satırına ve dosya adına eklenir; Akten listesinde aranabilir.
 3. **Ekleri tek PDF'te birleştirme:** Ekler damgalanır (Anlage K1, K2 …); boyut kontrolü yapılır.
 4. **Textbausteine:** Her iş akışı için birden fazla e-posta metni; kontrol penceresinde seçilir.

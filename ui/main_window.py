@@ -19,6 +19,7 @@ from core.update import ReleaseInfo, ist_neuer, neueste_release
 from version import __version__
 from workflows.base import AppContext, Field, Workflow
 
+from .adressbuch_dialog import AdressbuchDialog
 from .akten_tab import AktenTab
 from .kanzlei_dialog import KanzleiDialog
 
@@ -28,26 +29,32 @@ class _UpdateSignal(QObject):
 
 
 class ReviewDialog(QDialog):
-    """Bulunan değerleri gösterir; avukat düzeltir ve onaylar."""
+    """Bulunan değerleri kaynağıyla gösterir; avukat düzeltir, seçer ve onaylar."""
+
+    TRENNER = "   —   "                    # açılır listede "adres — kaynak"
+    WARN_WOERTER = ("prüfen", "nicht", "auswählen", "weichen", "manuell")
 
     def __init__(self, parent, doc: Path, fields: list[Field]):
         super().__init__(parent)
         self.setWindowTitle(f"Prüfen – {doc.name}")
-        self.setMinimumWidth(520)
-        self.fields = fields
+        self.setMinimumWidth(640)
+        self.fields = list(fields)
         self.editors: dict[str, QComboBox] = {}
+        self.hints: dict[str, QLabel] = {}
+        self.manuell: set[str] = set()       # kullanıcı elle yazdı -> otomatik yenileme ezmez
+        self._letzter: dict[str, str] = {}
 
         form = QFormLayout()
         for f in fields:
             box = QComboBox()
             box.setEditable(True)
-            items = [f.value] + [c for c in f.choices if c != f.value] if f.value else f.choices
-            box.addItems(items)
-            box.setCurrentText(f.value)
-            self.editors[f.key] = box
-            hint = QLabel(f.hint)
-            hint.setStyleSheet("color: #b45309;" if "prüfen" in f.hint or "nicht" in f.hint
-                               else "color: #15803d;")
+            box.setInsertPolicy(QComboBox.NoInsert)
+            hint = QLabel()
+            self.editors[f.key], self.hints[f.key] = box, hint
+            self._fuellen(f)
+            box.currentIndexChanged.connect(lambda i, k=f.key: self._gewaehlt(k, i))
+            box.lineEdit().textEdited.connect(lambda _t, k=f.key: self._bearbeitet(k))
+            box.lineEdit().editingFinished.connect(lambda k=f.key: self._geaendert(k))
             row = QHBoxLayout()
             row.addWidget(box, 1)
             row.addWidget(hint)
@@ -63,11 +70,80 @@ class ReviewDialog(QDialog):
         lay.addLayout(form)
         lay.addWidget(buttons)
 
+    # --- yardımcılar ---
+    def _feld(self, key: str) -> Field:
+        return next(f for f in self.fields if f.key == key)
+
+    def _hint_setzen(self, key: str, text: str):
+        lbl = self.hints[key]
+        lbl.setText(text)
+        warn = any(w in text for w in self.WARN_WOERTER)
+        lbl.setStyleSheet("color: #b45309;" if warn else "color: #15803d;")
+
+    def _fuellen(self, f: Field):
+        box = self.editors[f.key]
+        box.blockSignals(True)
+        box.clear()
+        werte = list(f.choices)
+        if f.value and f.value not in werte:
+            werte.insert(0, f.value)
+        for w in werte:
+            q = f.choice_hints.get(w)
+            box.addItem(f"{w}{self.TRENNER}{q}" if q else w, w)
+        if f.must_choose:
+            box.setCurrentIndex(-1)
+            box.setEditText("")
+            box.lineEdit().setPlaceholderText("Bitte auswählen …")
+        else:
+            box.setEditText(f.value)
+        box.blockSignals(False)
+        self._letzter[f.key] = f.value
+        self._hint_setzen(f.key, f.hint)
+
+    def _wert(self, key: str) -> str:
+        box = self.editors[key]
+        text = box.currentText().strip()
+        for i in range(box.count()):                 # "adres — kaynak" -> adres
+            if box.itemText(i).strip() == text:
+                return str(box.itemData(i)).strip()
+        return text
+
+    # --- olaylar ---
+    def _gewaehlt(self, key: str, index: int):
+        if index < 0:
+            return
+        box, f = self.editors[key], self._feld(key)
+        wert = str(box.itemData(index))
+        box.blockSignals(True)
+        box.setEditText(wert)
+        box.blockSignals(False)
+        self.manuell.discard(key)
+        self._hint_setzen(key, f.choice_hints.get(wert) or (f.hint if wert == f.value else "ausgewählt"))
+        self._geaendert(key)
+
+    def _bearbeitet(self, key: str):
+        self.manuell.add(key)
+        self._hint_setzen(key, "manuell geändert")
+
+    def _geaendert(self, key: str):
+        """Değer değişti: bağlı alanların önerilerini yenile (örn. Versicherer -> E-Mail)."""
+        f, wert = self._feld(key), self._wert(key)
+        if wert == self._letzter.get(key) or not f.on_change:
+            self._letzter[key] = wert
+            return
+        self._letzter[key] = wert
+        for neu in f.on_change(wert):
+            if neu.key in self.editors and neu.key not in self.manuell:
+                self.fields = [neu if x.key == neu.key else x for x in self.fields]
+                self._fuellen(neu)
+
     def _check(self):
         for f in self.fields:
-            v = self.editors[f.key].currentText().strip()
+            v = self._wert(f.key)
             if f.required and not v:
-                QMessageBox.warning(self, "Fehlt", f"Bitte „{f.label}“ ausfüllen.")
+                text = (f"Bitte für „{f.label}“ eine Adresse auswählen." if f.must_choose
+                        else f"Bitte „{f.label}“ ausfüllen.")
+                QMessageBox.warning(self, "Fehlt", text)
                 return
             if f.kind == "email" and v and not is_valid_email(v):
                 QMessageBox.warning(self, "Ungültig", f"„{v}“ ist keine gültige E-Mail-Adresse.")
@@ -75,7 +151,7 @@ class ReviewDialog(QDialog):
         self.accept()
 
     def values(self) -> dict[str, str]:
-        return {k: e.currentText().strip() for k, e in self.editors.items()}
+        return {k: self._wert(k) for k in self.editors}
 
 
 class DropList(QListWidget):
@@ -104,6 +180,7 @@ class MainWindow(QMainWindow):
 
         menu = self.menuBar().addMenu("Einstellungen")
         menu.addAction("Kanzleidaten…", self.kanzleidaten_bearbeiten)
+        menu.addAction("Versicherer-Adressbuch…", self.adressbuch_bearbeiten)
         hilfe = self.menuBar().addMenu("Hilfe")
         hilfe.addAction("Nach Updates suchen", lambda: self.update_pruefen(manuell=True))
         hilfe.addAction("Über BnX-Raptor", self.ueber)
@@ -197,6 +274,9 @@ class MainWindow(QMainWindow):
                           f"<b>BnX-Raptor</b> Version {__version__}<br>"
                           f"E-Mail-Modus: {self._modus_text()}<br>"
                           f"Daten: {self.ctx.kanzlei_store.ordner}")
+
+    def adressbuch_bearbeiten(self):
+        AdressbuchDialog(self, self.ctx.adressbuch).exec()
 
     def kanzleidaten_bearbeiten(self, erster_start: bool = False):
         if KanzleiDialog(self, self.ctx.kanzlei_store, erster_start).exec() == QDialog.Accepted:

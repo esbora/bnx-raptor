@@ -42,6 +42,24 @@ DEFAULTS: dict = {
     "update_pruefen": True,
     "signatur_quelle": "outlook",     # "outlook" (Outlook imzası) | "programm" (Kanzleidaten'dan)
     "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
+    # --- Versicherer-Adressbuch (0.3) ---
+    "feld_versicherer": "Versicherer",  # Word içerik denetiminin etiketi (Tag/Title)
+    # Adres bloğunda sigorta satırını tanıyan kelimeler. >= 8 harf: kelime içinde de aranır,
+    # daha kısa olanlar sadece tam kelime olarak.
+    "versicherer_stichwoerter": [
+        "versicherung", "versicherer", "assekuranz", "rechtsschutz", "haftpflicht",
+        "krankenkasse", "insurance", "assurance", "VVaG", "a.G.",
+        "Allianz", "AXA", "ERGO", "HDI", "HUK", "DEVK", "LVM", "VHV", "Generali", "Zurich",
+        "R+V", "Gothaer", "Debeka", "ARAG", "ADAC", "Provinzial", "Signal Iduna", "Helvetia",
+        "Baloise", "Barmenia", "Continentale", "Alte Leipziger", "Württembergische", "WGV",
+    ],
+    # Bilinen kısaltmalar (eşleştirmede açılır; görünen ad değişmez)
+    "versicherer_abkuerzungen": {
+        "Vers.": "Versicherung", "Versich.": "Versicherung",
+        "Lebensvers.": "Lebensversicherung", "Krankenvers.": "Krankenversicherung",
+        "Rechtsschutzvers.": "Rechtsschutzversicherung", "Sachvers.": "Sachversicherung",
+        "Allg.": "Allgemeine", "Dt.": "Deutsche", "Ges.": "Gesellschaft",
+    },
 }
 
 

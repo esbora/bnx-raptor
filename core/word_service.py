@@ -20,7 +20,11 @@ class WordService:
         try:
             self.app = win32.DispatchEx("Word.Application")
         except Exception as e:  # noqa: BLE001
-            raise WordError("Microsoft Word konnte nicht gestartet werden.") from e
+            # Microsoft 365: görünmez başlatma, Word lisansını yenileyene kadar başarısız olabiliyor
+            raise WordError(
+                "Microsoft Word konnte nicht gestartet werden.\n"
+                "Bitte Word einmal normal öffnen (ggf. anmelden), wieder schließen und erneut versuchen."
+            ) from e
         self.app.Visible = False
         self.app.DisplayAlerts = 0
         return self
