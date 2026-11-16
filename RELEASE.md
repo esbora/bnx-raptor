@@ -11,18 +11,18 @@ Sürüm numarası **MAJOR.MINOR.PATCH** biçimindedir (ör. `0.3.1`):
 2. `CHANGELOG-aktuell.md` dosyasına bu sürümdeki yenilikleri **Almanca** yazın
    (avukat bunu güncelleme penceresinde görür). Aynı metni `CHANGELOG.md` dosyasının en üstüne ekleyin.
 3. Testleri çalıştırın: `python -m pytest -q tests`
-4. Kaydedip etiketleyin:
+4. Kaydedip yükleyin:
    ```
    git add -A
    git commit -m "Release 0.3.0"
-   git tag v0.3.0
    git push
-   git push --tags
    ```
-5. GitHub kendisi `.exe` dosyasını oluşturur ve **Releases** sayfasına `BnX-Raptor-v0.3.0.zip` yükler
-   (5–10 dakika). Durumu GitHub'da **Actions** sekmesinden izleyebilirsiniz.
+5. Bu kadar. `version.py` değiştiği için GitHub kendisi devreye girer: testleri çalıştırır,
+   `.exe` dosyasını oluşturur, `v0.3.0` etiketini koyar ve **Releases** sayfasına
+   `BnX-Raptor-v0.3.0.zip` dosyasını yükler (5–10 dakika). Durum: GitHub → **Actions** sekmesi.
 
-Etiket ile `version.py` uyuşmazsa yayın bilerek durdurulur.
+Aynı sürüm numarası daha önce yayınlandıysa hiçbir şey yapılmaz. Elle başlatmak için:
+Actions → Release → **Run workflow**.
 
 ## Büroda güncelleme (elle)
 

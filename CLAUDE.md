@@ -106,7 +106,8 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 ## 7. Sürüm ve release
 
 - Sürümü Claude belirler: hata düzeltmesinde PATCH, yeni özellikte MINOR artırılır. `version.py`, `CHANGELOG.md` ve `CHANGELOG-aktuell.md` (Almanca) birlikte güncellenir.
-- Release adımları **RELEASE.md** dosyasında: commit, ardından `git tag vX.Y.Z` ve `git push --tags`. GitHub Actions exe dosyasını ve ZIP'i oluşturur.
+- Release: `version.py` + changelog güncellenir, commit edilir, `main`'e push edilir. GitHub Actions (`release.yml`) etiketi, exe dosyasını, ZIP'i ve Release'i kendisi oluşturur. Elle etiket oluşturulmaz. Ayrıntılar **RELEASE.md** dosyasında.
+- Depo: https://github.com/esbora/BnX-Raptor (herkese açık).
 - Güncelleme elle kurulur; program yeni sürüm olduğunda sadece uyarır.
 
 ## 8. Durum
