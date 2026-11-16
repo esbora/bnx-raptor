@@ -20,7 +20,7 @@ DEFAULTS: dict = {
         "<p>in der oben genannten Angelegenheit übersenden wir Ihnen anliegend unser Schreiben.</p>"
         "<p>Mit freundlichen Grüßen</p>"
     ),
-    "mail_modus": "outlook",          # "outlook" (klasik Outlook) | "eml" (her programda taslak)
+    "mail_modus": "auto",             # "auto" (algıla) | "outlook" (klasik) | "eml" (her programda taslak)
     "pdf_ordner": "",                 # boş = Word dosyasının yanına
     "pdf_dateiname": "{datum}_{nummer}_{dokument}",
     "pdfa": True,
@@ -38,7 +38,7 @@ DEFAULTS: dict = {
     "feld_mandant_email": "Mandant_Email",
     "eingang_unterordner": "",        # gelen cevaplar için alt klasör, ör. "Eingang"
     "eingang_tage": 30,               # Outlook'ta kaç gün geriye bakılsın
-    "update_repo": "",                # GitHub "kullanici/repo" – boş = güncelleme kontrolü kapalı
+    "update_repo": "esbora/BnX-Raptor",  # GitHub "kullanici/repo" – boş = güncelleme kontrolü kapalı
     "update_pruefen": True,
     "signatur_quelle": "outlook",     # "outlook" (Outlook imzası) | "programm" (Kanzleidaten'dan)
     "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü

@@ -15,7 +15,7 @@
   ],
   "betreff_vorlage": "Versicherungsnummer: {nummer}",
   "mail_text_html": "<p>Sehr geehrte Damen und Herren,</p><p>in der oben genannten Angelegenheit übersenden wir Ihnen anliegend unser Schreiben.</p><p>Mit freundlichen Grüßen</p>",
-  "mail_modus": "outlook",
+  "mail_modus": "auto",
   "pdf_ordner": "",
   "pdf_dateiname": "{datum}_{nummer}_{dokument}",
   "pdfa": true,
@@ -25,7 +25,7 @@
   "feld_mandant_email": "Mandant_Email",
   "eingang_unterordner": "",
   "eingang_tage": 30,
-  "update_repo": "",
+  "update_repo": "esbora/BnX-Raptor",
   "update_pruefen": true,
   "signatur_quelle": "outlook",
   "daten_ordner": ""

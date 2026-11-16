@@ -52,5 +52,5 @@ Yeni sürüm yayınlamak için: **RELEASE.md**
 - Release ZIP dosyasını açın ve klasörü örneğin `C:\Programme\BnX-Raptor` altına koyun.
 - İlk açılışta "Kanzleidaten" penceresi çıkar; büro bilgilerini girin.
 - Sağ tık menüsüne eklemek için: `Win+R` → `shell:sendto` → `BnX-Raptor.exe` için bir kısayol oluşturun.
-- **Outlook:** Klasik Outlook varsa `"mail_modus": "outlook"`, yeni Outlook varsa `"eml"` ayarlayın.
+- **Outlook:** Varsayılan ayar `"mail_modus": "auto"`. Klasik Outlook varsa taslak orada açılır, yoksa `.eml` taslağı kullanılır. Yeni Outlook'ta gelen cevaplar sürükle-bırak ile alınır.
 - **Word şablonu:** İçerik denetimlerinin etiketleri (Tag) `Empfaenger_Email`, `Versicherungsnummer` ve isteğe bağlı `Mandant_Email` olmalı.

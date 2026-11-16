@@ -277,7 +277,16 @@ class AktenTab(QWidget):
         return ref if ok else ""
 
     def outlook_import(self):
+        from core.entwurf import mail_modus
         from core.outlook_eingang import OutlookPosteingang
+        if mail_modus(self.ctx.cfg) == "eml":
+            QMessageBox.information(
+                self, "Outlook",
+                "Das neue Outlook erlaubt keinen automatischen Abruf.\n\n"
+                "So geht es trotzdem: Antwort-E-Mail in Outlook markieren und mit der Maus "
+                "in diesen Reiter ziehen – oder über „Datei → Speichern unter“ als .eml/.msg "
+                "speichern und mit „E-Mail-Datei importieren…“ übernehmen.")
+            return
         try:
             QGuiApplication.setOverrideCursor(Qt.WaitCursor)
             try:

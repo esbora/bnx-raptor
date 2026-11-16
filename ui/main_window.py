@@ -187,9 +187,15 @@ class MainWindow(QMainWindow):
         if box.clickedButton() is b_dl:
             QDesktopServices.openUrl(QUrl(info.download or info.url))
 
+    def _modus_text(self) -> str:
+        from core.entwurf import mail_modus
+        return {"outlook": "klassisches Outlook", "eml": ".eml-Entwurf (neues Outlook / andere)"}.get(
+            mail_modus(self.cfg), "?")
+
     def ueber(self):
         QMessageBox.about(self, "Über BnX-Raptor",
                           f"<b>BnX-Raptor</b> Version {__version__}<br>"
+                          f"E-Mail-Modus: {self._modus_text()}<br>"
                           f"Daten: {self.ctx.kanzlei_store.ordner}")
 
     def kanzleidaten_bearbeiten(self, erster_start: bool = False):

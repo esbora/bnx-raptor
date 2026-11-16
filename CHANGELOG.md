@@ -5,4 +5,5 @@
 - Kopie des Schreibens an den Mandanten (optional, als zweiter Entwurf)
 - Reiter „Akten“: Verlauf je Versicherungsnummer, E-Mails an Mandant/Versicherung mit Anlagen
 - Antworten der Versicherung aus Outlook abrufen oder als .eml/.msg hineinziehen; Ablage im Aktenordner
+- E-Mail-Modus wird automatisch erkannt (klassisches Outlook oder .eml-Entwurf für das neue Outlook)
 - Hinweis auf neue Versionen beim Start (Update wird manuell installiert)

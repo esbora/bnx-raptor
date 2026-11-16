@@ -104,3 +104,10 @@ def test_release_parsen():
                         "body": "Neu: …", "assets": [{"name": "BnX-Raptor-0.3.0.zip",
                                                       "browser_download_url": "https://dl/zip"}]})
     assert (r.version, r.download) == ("0.3.0", "https://dl/zip")
+
+
+def test_mail_modus_auto_ohne_outlook():
+    from core.entwurf import mail_modus
+    cfg = {"mail_modus": "auto"}
+    assert mail_modus(cfg) == "eml"            # Linux'ta Outlook yok -> eml
+    assert mail_modus({"mail_modus": "outlook"}) == "outlook"

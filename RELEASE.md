@@ -44,4 +44,4 @@ Güncelleme kontrolü GitHub'a giriş yapmadan çalışır. Bunun için
 - Seçenek B: kod gizli bir depoda kalır, ZIP dosyaları ayrı ve herkese açık bir
   "BnX-Raptor-Releases" deposunda yayınlanır.
 
-`config.json` → `"update_repo": "kullanici/depo"`
+Depo: **https://github.com/esbora/BnX-Raptor** (herkese açık). `"update_repo": "esbora/BnX-Raptor"` varsayılan olarak ayarlı.

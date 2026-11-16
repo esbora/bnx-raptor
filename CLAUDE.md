@@ -40,7 +40,9 @@ Mevcut sürüm: `version.py` dosyasına bakın (şu an 0.2.0). Değişiklikler `
 - Ayarlar: exe'nin yanındaki `config.json` (ilk açılışta oluşturulur). Örnek: `config.example.json`
 - Testler: pytest. GitHub Actions: her push'ta testler, `v*` etiketiyle release
 - Hedef sistem: Windows 10/11, Microsoft Word, klasik Outlook.
-  "Yeni Outlook" COM desteklemez; bu durumda `"mail_modus": "eml"` kullanılır.
+  "Yeni Outlook" COM desteklemez. Varsayılan `"mail_modus": "auto"` bunu kendisi algılar
+  (`core/entwurf.py` → `mail_modus()`): klasik Outlook varsa taslak orada açılır, yoksa `.eml` taslağı kullanılır.
+  Gelen cevaplar klasik Outlook'ta otomatik aranır; yeni Outlook'ta sürükle-bırak ile alınır.
 
 ## 5. Mimari
 
@@ -112,7 +114,7 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 - [x] 0.1 – Sigorta mektubu → PDF/A → Outlook/.eml taslağı, kontrol penceresi, işlem geçmişi
 - [x] 0.2 – Büro bilgileri ve logo, imza, müvekkile kopya, Akten sekmesi, gelen cevapları içe aktarma, güncelleme uyarısı, GitHub release
 - [ ] Windows'ta gerçek bir büro mektubuyla ilk test (arama kalıplarının ayarlanması)
-- [ ] GitHub deposunun oluşturulması ve `update_repo` ayarının yapılması
+- [x] GitHub deposu: https://github.com/esbora/BnX-Raptor (herkese açık); `update_repo` varsayılan olarak ayarlı
 - [ ] Büronun Word şablonuna içerik denetimlerinin eklenmesi
 
 ## 9. Yol haritası (her madde ayrı onayla yapılır)
@@ -139,8 +141,7 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 
 ## 10. Açık sorular (proje sahibinin cevabı bekleniyor)
 
-- Büroda klasik Outlook mu, yeni Outlook mu kullanılıyor? Microsoft 365 / Exchange var mı?
-- GitHub kullanıcı adı ve depo adı ne olacak? Depo herkese açık mı, gizli mi? (bkz. RELEASE.md)
+- Büroda klasik Outlook mu, yeni Outlook mu kullanılıyor? (Bilinmiyor; program iki durumu da destekliyor ve kendisi algılıyor.)
 - Hangi büro yazılımı kullanılıyor? Dava klasörleri nerede ve nasıl adlandırılıyor?
 - Program kaç kişi tarafından, kaç bilgisayarda kullanılacak? Ortak ağ sürücüsü var mı?
 - Konu satırına büronun kendi dosya numarası da eklensin mi?

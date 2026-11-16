@@ -8,13 +8,35 @@ from __future__ import annotations
 from pathlib import Path
 
 from .kanzlei import signatur_html
-from .mail_service import LOGO_CID, EmlDrafter, MailDraft, OutlookClassicDrafter
+from .mail_service import LOGO_CID, EmlDrafter, MailDraft, MailError, OutlookClassicDrafter
+
+
+def klassisches_outlook_verfuegbar() -> bool:
+    """Klasik Outlook COM üzerinden erişilebilir mi? (Yeni Outlook'ta False)"""
+    try:
+        import pythoncom
+        import win32com.client as win32
+        pythoncom.CoInitialize()
+        win32.Dispatch("Outlook.Application")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def mail_modus(cfg: dict) -> str:
+    """'auto' ise algılar: klasik Outlook varsa 'outlook', yoksa 'eml'. Sonuç önbelleğe alınır."""
+    modus = cfg.get("mail_modus", "auto")
+    if modus != "auto":
+        return modus
+    if "_mail_modus_erkannt" not in cfg:
+        cfg["_mail_modus_erkannt"] = "outlook" if klassisches_outlook_verfuegbar() else "eml"
+    return cfg["_mail_modus_erkannt"]
 
 
 def entwurf_erstellen(ctx, draft: MailDraft, eml_ordner: Path) -> str:
     """Taslağı açar, kullanıcıya gösterilecek mesajı döndürür. ASLA göndermez."""
     cfg = ctx.cfg
-    eml_modus = cfg.get("mail_modus") == "eml"
+    eml_modus = mail_modus(cfg) == "eml"
     # .eml modunda Outlook imzası yok -> imza her zaman programdan gelir
     if cfg.get("signatur_quelle") == "programm" or eml_modus:
         k = ctx.kanzlei
@@ -30,4 +52,11 @@ def entwurf_erstellen(ctx, draft: MailDraft, eml_ordner: Path) -> str:
             ziel = ziel.with_name(f"{ziel.stem.rsplit('_', 1)[0]}_{i}.eml")
             i += 1
         return EmlDrafter().create(draft, ziel)
-    return OutlookClassicDrafter().create(draft)
+    try:
+        return OutlookClassicDrafter().create(draft)
+    except MailError:
+        if cfg.get("mail_modus", "auto") != "auto":
+            raise
+        # Outlook bu arada kapanmış/değişmiş olabilir -> .eml ile devam et
+        cfg["_mail_modus_erkannt"] = "eml"
+        return entwurf_erstellen(ctx, draft, eml_ordner)
