@@ -64,6 +64,10 @@ DEFAULTS: dict = {
 }
 
 
+class ConfigFehler(Exception):
+    """config.json okunamadı – programın başında Almanca mesajla gösterilir."""
+
+
 def app_dir() -> Path:
     """exe olarak paketlendiğinde exe'nin klasörü, aksi halde proje klasörü."""
     if getattr(sys, "frozen", False):
@@ -88,8 +92,15 @@ def load_config() -> dict:
     cfg = dict(DEFAULTS)
     path = app_dir() / "config.json"
     if path.exists():
-        with open(path, encoding="utf-8") as f:
-            cfg.update(json.load(f))
+        # utf-8-sig: Not Defteri'nin eklediği BOM'u da kabul eder
+        with open(path, encoding="utf-8-sig") as f:
+            try:
+                cfg.update(json.load(f))
+            except json.JSONDecodeError as e:
+                raise ConfigFehler(
+                    f"Die Datei config.json ist fehlerhaft (Zeile {e.lineno}, Spalte {e.colno}).\n"
+                    f"{path}\n\nBitte die Datei korrigieren oder löschen – BnX-Raptor legt sie "
+                    "dann mit den Standardwerten neu an.") from e
     else:
         try:
             path.write_text(json.dumps(DEFAULTS, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -93,7 +93,7 @@ class KanzleiStore:
     def laden(self) -> Kanzlei:
         if not self.datei.exists():
             return Kanzlei()
-        data = json.loads(self.datei.read_text(encoding="utf-8"))
+        data = json.loads(self.datei.read_text(encoding="utf-8-sig"))
         bekannt = {f.name for f in fields(Kanzlei)}
         return Kanzlei(**{k: v for k, v in data.items() if k in bekannt})
 

@@ -11,4 +11,5 @@
 - Die eigene Kanzlei-Adresse wird nicht mehr als Empfänger vorgeschlagen. Die Kanzlei-Domain wird automatisch aus der E-Mail-Adresse unter „Büro-Informationen“ übernommen (zusätzlich zur Einstellung „eigene_domains“). Steht im Schreiben nur die Kanzlei-Adresse, bleibt das Feld leer: „nur Kanzlei-Adresse im Brief – bitte manuell eintragen“.
 - Mehr Sicherheit bei Word: Wartet das unsichtbare Word auf eine versteckte Rückfrage (z. B. „Datei in Verwendung“), bricht BnX-Raptor nach 90 Sekunden mit einer verständlichen Meldung ab (einstellbar: „word_zeitlimit_sekunden“). Dabei wird nur die von BnX-Raptor gestartete Word-Sitzung beendet – Ihre geöffneten Word-Dokumente bleiben unberührt. Das Programmfenster reagiert während der Word-Arbeit weiter.
 - Kann Word nicht gestartet werden, erscheint ein Hinweis, was zu tun ist.
+- Robusterer Programmstart: Eine mit dem Windows-Editor gespeicherte config.json (mit BOM) wird jetzt gelesen; ist die Datei fehlerhaft, erscheint eine verständliche Meldung mit Zeilenangabe statt eines Absturzes.
 - Korrektur: Die Mandanten-E-Mail aus dem Vorlagenfeld wird jetzt als „aus Vorlage“ (statt „aus Akte“) gekennzeichnet.

@@ -2,6 +2,8 @@ import email
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.config import DEFAULTS  # noqa: E402
@@ -146,3 +148,14 @@ def test_typischer_brief_ohne_vorlagenfelder():
     assert (r.email, r.quelle_email) == ("schaden.fiktiva@example.com", "text")
     assert r.email_candidates == ["schaden.fiktiva@example.com"]
     assert (r.nummer, r.quelle_nummer) == ("FV-4711-2026-0815", "text")
+
+
+def test_config_mit_bom_und_fehlerhafte_config(tmp_path, monkeypatch):
+    # EXE-Test 0.3.0: config.json mit UTF-8-BOM (Notepad) ließ das Programm abstürzen
+    import core.config as c
+    monkeypatch.setattr(c, "app_dir", lambda: tmp_path)
+    (tmp_path / "config.json").write_bytes(b'\xef\xbb\xbf{"pdfa": false}')
+    assert c.load_config()["pdfa"] is False
+    (tmp_path / "config.json").write_text('{"pdfa": false,}', encoding="utf-8")
+    with pytest.raises(c.ConfigFehler, match="Zeile 1"):
+        c.load_config()
