@@ -150,6 +150,13 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   CycloneDX 1.6 SBOM (`tools/sbom_erzeugen.py`, şema doğrulandı), kanıtlar `docs/CRA/nachweise/`.
   Teslim ZIP'i: `tools/uebergabe_bauen.py` → `BnX-Raptor-0.4.0-Pilot-win64-<commit>.zip` (+ .sha256), yeni klasöre
   açılıp test edildi. Hukuki değerlendirme taslaktır; üretici bilgileri, iletişim noktası, destek süresi OFFEN.
+- [x] Teslim hazırlığı (2026-11-17): kullanılmayan Qt ağ/TLS/görüntü eklentileri spec'ten çıkarıldı; Qt 6.12 ve
+  MuPDF 1.28.6 üçüncü taraf bildirimleri `tools/lizenztexte_holen.py` ile resmî kaynaktan (`lizenzen/drittanbieter/qt|mupdf`);
+  Tesseract DLL'leri MSYS2 ikili paketleriyle SHA-256 eşleştirildi (`MSYS2-Zuordnung.json`, 28/34); libjbig + LGPL DLL
+  kaynak paketleri pakette `quellcode-drittanbieter\`. Güvenlik bildirimi karşılaştırması `tools/schwachstellen_abgleich.py`
+  (NVD/curl/OSV; libcurl 8.21.0 bulguları – Tesseract yalnızca "://" girdide curl kullanır, BnX stdin verir). Bozuk PDF
+  testinde /Count hatası bulundu ve düzeltildi (b3e1b94). Açık: proje lisansı, Qt kaynak kodu yolu, VC++ çalışma zamanı
+  dağıtım koşulu (hukuki), Tesseract öz derlemesi (curl/libssh2 güncel değil).
 - [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
 

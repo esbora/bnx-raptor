@@ -14,3 +14,5 @@
 - Endgültig schwärzen (Bereiche markieren oder Suchtreffer): Text, OCR-Text und Bildpunkte werden entfernt; beim Speichern außerdem eingebettete Dateien, Metadaten und Vorschaubilder. Die gespeicherte Datei wird danach automatisch neu geöffnet und geprüft.
 - Rückgängig/Wiederholen, „Speichern unter…“ in eine neue Datei (das Original bleibt immer unverändert), Warnung bei ungespeicherten Änderungen. Digital signierte PDFs werden erkannt; Änderungen werden nur als Kopie gespeichert.
 - Versicherungsschreiben: neue Option „PDF vor dem Entwurf im PDF-Editor prüfen/bearbeiten“; anschließend wird angezeigt, welche Fassung angehängt wird.
+- Beschädigte PDFs mit fehlerhaftem Seitenverzeichnis führen jetzt zu einer verständlichen Meldung statt zu einem technischen Fehler.
+- Programmpaket: nicht benötigte Qt-Netzwerk-, Verschlüsselungs- und Bildformat-Bibliotheken entfernt. Lizenzhinweise der mitgelieferten Komponenten vervollständigt; der Quellcode der mitgelieferten GPL/LGPL-Bibliotheken der Texterkennung liegt im Ordner „quellcode-drittanbieter“ bei.
