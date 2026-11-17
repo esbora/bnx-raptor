@@ -22,6 +22,10 @@ from workflows.base import AppContext
 
 
 def main() -> int:
+    if len(sys.argv) > 2 and sys.argv[1] == "--pdf-prototyp":   # 0.4 Faz 0 (yalnızca yerel test)
+        from ui.pdf_prototyp import main as prototyp
+        app = QApplication(sys.argv)  # noqa: F841
+        return prototyp(Path(sys.argv[2]))
     app = QApplication(sys.argv)
     app.setApplicationName("BnX-Raptor")
     app.setApplicationVersion(__version__)

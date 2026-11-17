@@ -2,3 +2,4 @@ PySide6>=6.7
 pywin32>=306; sys_platform == "win32"
 pyinstaller>=6.0
 pytest>=8.0
+pymupdf==2.1   # 0.4 PDF-Editor (AGPL-3.0 – Lizenzentscheidung offen)
