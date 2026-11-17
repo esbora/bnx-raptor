@@ -10,10 +10,10 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QGuiApplication, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
+from PySide6.QtGui import QBrush, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QSpinBox, QSplitter,
+                               QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter,
                                QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
@@ -21,9 +21,8 @@ from core import anlagen as an
 from core import pdf_engine as pe
 from core.mail_service import MailDraft, MailError
 
+from . import theme
 from .pdf_ui import AnhangVorschau, im_thread, qpixmap
-
-ROT, ORANGE, GRUEN = QColor("#b91c1c"), QColor("#b45309"), QColor("#15803d")
 
 
 class AnlagenListe(QTreeWidget):
@@ -74,7 +73,9 @@ class KontrollDialog(QDialog):
         self.setWindowTitle("Anlagenpaket prüfen – BnX-Raptor")
         self.resize(1000, 620)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(f"<b>Zielordner:</b> {ordner}"))
+        lay.setContentsMargins(22, 18, 22, 16)
+        lay.addWidget(theme.ueberschrift("Anlagenpaket prüfen", "h2"))
+        lay.addWidget(theme.rolle(QLabel(f"Zielordner: {ordner}"), "gedimmt"))
         t = QTableWidget(0, 5)
         t.setHorizontalHeaderLabels(["Anlage", "Bezeichnung", "Quelldatei", "Ausgabedatei", "Seiten"])
         t.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -95,29 +96,39 @@ class KontrollDialog(QDialog):
             for c, v in enumerate(z[:5]):
                 it = QTableWidgetItem(v)
                 if z[5] is not None and z[5].fehler:
-                    it.setForeground(QBrush(ROT))
+                    it.setForeground(QBrush(theme.status_farbe("fehler")))
                 t.setItem(r, c, it)
         t.resizeColumnsToContents()
         t.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         lay.addWidget(t, 2)
-        lay.addWidget(QLabel("<b>Hinweise</b>"))
+        lay.addWidget(theme.ueberschrift("Hinweise", "h3"))
         hl = QListWidget()
         for h in hinweise:
-            it = QListWidgetItem(("✖ " if h.stufe == "fehler" else "⚠ ") + h.text)
-            it.setForeground(QBrush(ROT if h.stufe == "fehler" else ORANGE))
+            art = "fehler" if h.stufe == "fehler" else "warn"
+            it = QListWidgetItem(theme.status_text(art, h.text))
+            it.setForeground(QBrush(theme.status_farbe(art)))
             hl.addItem(it)
         if not hinweise:
-            hl.addItem(QListWidgetItem("✓ Keine Auffälligkeiten"))
+            it = QListWidgetItem(theme.status_text("ok", "Keine Auffälligkeiten"))
+            it.setForeground(QBrush(theme.status_farbe("ok")))
+            hl.addItem(it)
         lay.addWidget(hl, 1)
         self.blockiert = an.blockiert(hinweise)
         if self.blockiert:
-            lay.addWidget(QLabel("<b style='color:#b91c1c'>Das Paket kann nicht erstellt werden. Bitte die rot "
-                                 "markierten Punkte beheben (z. B. beschädigte Datei entfernen).</b>"))
+            m = QLabel()
+            theme.status_setzen(m, "fehler", "Das Paket kann nicht erstellt werden. Bitte die rot markierten Punkte "
+                                "beheben (z. B. beschädigte Datei entfernen).")
+            m.setWordWrap(True)
+            lay.addWidget(m)
         elif any(h.art in ("identisch", "aehnlich") for h in hinweise):
-            lay.addWidget(QLabel("Doppelte/ähnliche Dateien werden <b>nicht</b> automatisch entfernt – "
-                                 "bitte selbst entscheiden („Zurück“ → Anlage auswählen → Entfernen)."))
+            m = QLabel()
+            theme.status_setzen(m, "warn", "Doppelte/ähnliche Dateien werden nicht automatisch entfernt – bitte selbst "
+                                "entscheiden („Zurück“ → Anlage auswählen → Entfernen).")
+            m.setWordWrap(True)
+            lay.addWidget(m)
         bb = QDialogButtonBox()
         self.ok = bb.addButton("&Erstellen", QDialogButtonBox.AcceptRole)
+        theme.rolle(self.ok, "primaer")
         bb.addButton("&Zurück", QDialogButtonBox.RejectRole)
         self.ok.setEnabled(not self.blockiert)
         self.ok.setDefault(not self.blockiert)
@@ -139,117 +150,225 @@ class AnlagenTab(QWidget):
 
     # ------------------------------------------------------------- Aufbau
     def _aufbau(self):
+        """Drei Spalten: Anlagenliste (links) · große Vorschau (Mitte) · ausgewählte Anlage + Paket (rechts);
+        unten die Schritte in Arbeitsreihenfolge. Alt-Kürzel unverändert (H, S, N, L, R, V, D, Ö, G, T, E, P, O)."""
+        self.setObjectName("seite")
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 16, 24, 14)
+        lay.setSpacing(10)
         kopf = QHBoxLayout()
-        kopf.addWidget(QLabel("<b>Schriftsatz:</b>"))
+        kopf.addWidget(theme.ueberschrift("Anlagen-Assistent", "h1"))
+        kopf.addSpacing(16)
+        kopf.addWidget(theme.rolle(QLabel("Schriftsatz:"), "gedimmt"))
         self.l_schriftsatz = QLabel("— noch keiner (Word-Datei hineinziehen) —")
+        self.l_schriftsatz.setProperty("rolle", "h3")
         kopf.addWidget(self.l_schriftsatz, 1)
         self.b_als_schriftsatz = QPushButton("Auswahl als &Schriftsatz")
         self.b_als_schriftsatz.clicked.connect(self.als_schriftsatz)
         kopf.addWidget(self.b_als_schriftsatz)
-        b_add = QPushButton("Dateien &hinzufügen…")
-        b_add.clicked.connect(self.dateien_waehlen)
-        kopf.addWidget(b_add)
         b_neu = QPushButton("&Neu")
+        b_neu.setToolTip("Liste leeren und neu beginnen")
         b_neu.clicked.connect(self.leeren)
         kopf.addWidget(b_neu)
         lay.addLayout(kopf)
 
         split = QSplitter()
-        links = QWidget()
+        split.setChildrenCollapsible(False)
+        # --- links: Anlagenliste
+        links = theme.karte(QFrame(), schatten=False)
         ll = QVBoxLayout(links)
-        ll.setContentsMargins(0, 0, 0, 0)
-        l_liste = QLabel("Anlagen&liste – Schriftsatz und Anlagen hierher ziehen (Word, PDF, JPG, PNG); "
-                         "Reihenfolge per Ziehen oder Alt+↑/↓; Bezeichnung mit F2 ändern:")
+        ll.setContentsMargins(14, 12, 14, 12)
+        l_liste = QLabel("Anlagen&liste")
+        l_liste.setProperty("rolle", "h3")
         ll.addWidget(l_liste)
+        tipp = theme.rolle(QLabel("Dateien hierher ziehen · Alt+↑/↓ sortiert · F2 benennt"), "gedimmt")
+        tipp.setWordWrap(True)
+        ll.addWidget(tipp)
         self.liste = AnlagenListe()
+        self.liste.setColumnHidden(2, True)                 # Quelldatei steht rechts bei der Auswahl
         l_liste.setBuddy(self.liste)
         self.liste.dateien.connect(self.hinzufuegen)
         self.liste.umsortiert.connect(self._geaendert)
         self.liste.itemChanged.connect(self._titel_geaendert)
         self.liste.currentItemChanged.connect(lambda *_: self._vorschau())
         ll.addWidget(self.liste, 1)
-        knoepfe = QHBoxLayout()
-        for text, fn in (("▲ Nach oben", lambda: self.verschieben(-1)), ("▼ Nach unten", lambda: self.verschieben(1)),
-                         ("Entfernen", self.entfernen), ("Ausrichtung ko&rrigieren", self.ausrichtung_korrigieren)):
+        knoepfe = QGridLayout()
+        for i, (text, fn) in enumerate((("▲ Nach oben", lambda: self.verschieben(-1)),
+                                        ("▼ Nach unten", lambda: self.verschieben(1)),
+                                        ("Entfernen", self.entfernen),
+                                        ("Ausrichtung ko&rrigieren", self.ausrichtung_korrigieren))):
             b = QPushButton(text)
             b.clicked.connect(fn)
-            knoepfe.addWidget(b)
+            knoepfe.addWidget(b, i // 2, i % 2)
         ll.addLayout(knoepfe)
         split.addWidget(links)
-
-        rechts = QWidget()
-        rl = QVBoxLayout(rechts)
-        rl.setContentsMargins(0, 0, 0, 0)
-        l_vor = QLabel("&Vorschau der ausgewählten Anlage (Seiten wählen für Seitenaktionen):")
-        rl.addWidget(l_vor)
+        # --- Mitte: große Vorschau
+        mitte = theme.karte(QFrame(), schatten=False)
+        ml = QVBoxLayout(mitte)
+        ml.setContentsMargins(14, 12, 14, 12)
+        l_vor = QLabel("&Vorschau")
+        l_vor.setProperty("rolle", "h3")
+        ml.addWidget(l_vor)
+        hinw = theme.rolle(QLabel("Seiten anklicken (Strg/Umschalt für mehrere), dann Seitenaktion wählen."), "gedimmt")
+        hinw.setWordWrap(True)
+        ml.addWidget(hinw)
         self.seiten = QListWidget()
         l_vor.setBuddy(self.seiten)
         self.seiten.setViewMode(QListWidget.IconMode)
-        self.seiten.setIconSize(QSize(120, 170))
+        self.seiten.setIconSize(QSize(170, 240))
+        self.seiten.setSpacing(10)
         self.seiten.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.seiten.setResizeMode(QListWidget.Adjust)
         self.seiten.setMovement(QListWidget.Static)
-        rl.addWidget(self.seiten, 1)
+        self.seiten.setWordWrap(True)
+        ml.addWidget(self.seiten, 1)
         sk = QGridLayout()
         for i, (text, fn) in enumerate((("↻ &Drehen", lambda: self.seitenaktion("drehen")),
                                         ("Seite l&öschen", lambda: self.seitenaktion("loeschen")),
-                                        ("Als ei&gene Anlage", lambda: self.seitenaktion("eigene")),
-                                        ("&Texterkennung (OCR)", self.ocr),
-                                        ("Im PDF-&Editor öffnen…", self.im_editor))):
+                                        ("Als ei&gene Anlage", lambda: self.seitenaktion("eigene")))):
             b = QPushButton(text)
             b.clicked.connect(fn)
-            sk.addWidget(b, i // 3, i % 3)
-        rl.addLayout(sk)
-        split.addWidget(rechts)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
-        lay.addWidget(split, 1)
-
-        einst = QHBoxLayout()
-        einst.addWidget(QLabel("Präfix:"))
+            sk.addWidget(b, i // 2, i % 2)
+        ml.addLayout(sk)
+        split.addWidget(mitte)
+        # --- rechts: ausgewählte Anlage + Paket
+        rechts_karte = theme.karte(QFrame(), schatten=False)
+        rk = QVBoxLayout(rechts_karte)
+        rk.setContentsMargins(2, 2, 2, 2)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        rechts = QWidget()
+        rechts.setObjectName("karteninhalt")
+        scroll.setWidget(rechts)
+        rk.addWidget(scroll)
+        rl = QVBoxLayout(rechts)
+        rl.setContentsMargins(16, 12, 16, 12)
+        rl.setSpacing(6)
+        rl.addWidget(theme.ueberschrift("Ausgewählte Anlage", "h3"))
+        self.d_nummer = theme.rolle(QLabel("–"), "akzent")
+        rl.addWidget(self.d_nummer, 0, Qt.AlignLeft)
+        rl.addWidget(theme.rolle(QLabel("Bezeichnung"), "gedimmt"))
+        self.d_titel = QLineEdit()
+        self.d_titel.setPlaceholderText("Bezeichnung der Anlage")
+        self.d_titel.editingFinished.connect(self._detail_titel)
+        rl.addWidget(self.d_titel)
+        self.d_info = QLabel()
+        self.d_info.setWordWrap(True)
+        rl.addWidget(self.d_info)
+        self.d_status = QLabel()
+        self.d_status.setWordWrap(True)
+        rl.addWidget(self.d_status)
+        for text, fn in (("&Texterkennung (OCR)", self.ocr), ("Im PDF-&Editor öffnen…", self.im_editor)):
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            rl.addWidget(b)
+        rl.addSpacing(10)
+        rl.addWidget(theme.ueberschrift("Paket", "h3"))
+        form = QHBoxLayout()
+        form.addWidget(QLabel("Präfix:"))
         self.praefix = QLineEdit(self.cfg.get("anlagen_praefix", "Anlage K"))
-        self.praefix.setMaximumWidth(110)
+        self.praefix.setMinimumWidth(80)
         self.praefix.textChanged.connect(self._geaendert)
-        einst.addWidget(self.praefix)
-        einst.addWidget(QLabel("beginnt bei:"))
+        form.addWidget(self.praefix, 1)
+        form.addWidget(QLabel("ab"))
         self.start = QSpinBox()
+        self.start.setToolTip("beginnt bei")
         self.start.setRange(1, 999)
         self.start.valueChanged.connect(self._geaendert)
-        einst.addWidget(self.start)
-        einst.addWidget(QLabel("  Zielordner:"))
+        form.addWidget(self.start)
+        rl.addLayout(form)
+        rl.addWidget(QLabel("Zielordner:"))
+        zo = QHBoxLayout()
         self.ordner = QLineEdit()
         self.ordner.textChanged.connect(lambda *_: self._ungueltig())
-        einst.addWidget(self.ordner, 1)
+        zo.addWidget(self.ordner, 1)
         b_ord = QPushButton("Wählen…")
         b_ord.clicked.connect(self.ordner_waehlen)
-        einst.addWidget(b_ord)
-        self.gesamt = QCheckBox("Gesamt-PDF zur internen Prüfung")
-        einst.addWidget(self.gesamt)
-        lay.addLayout(einst)
+        zo.addWidget(b_ord)
+        rl.addLayout(zo)
+        self.gesamt = QCheckBox("Gesamt-PDF (intern)")
+        self.gesamt.setToolTip("Zusätzlich ein Gesamt-PDF zur internen Prüfung erstellen (wird nicht versendet)")
+        rl.addWidget(self.gesamt)
+        rl.addStretch(1)
+        split.addWidget(rechts_karte)
+        for w_, mn in ((links, 250), (mitte, 220), (rechts_karte, 230)):
+            w_.setMinimumWidth(mn)
+        split.setStretchFactor(0, 4)
+        split.setStretchFactor(1, 4)
+        split.setStretchFactor(2, 3)
+        split.setSizes([430, 430, 300])
+        lay.addWidget(split, 1)
 
         self.hinweise = QListWidget()
-        self.hinweise.setMaximumHeight(110)
+        self.hinweise.setMaximumHeight(84)
+        self.hinweise.setToolTip("Hinweise zu allen Anlagen: ✖ stoppt das Paket, ⚠ bitte prüfen, ✓ in Ordnung")
         lay.addWidget(self.hinweise)
-        unten = QHBoxLayout()
+        unten = theme.karte(QFrame(), schatten=False)
+        ul = QHBoxLayout(unten)
+        ul.setContentsMargins(14, 10, 14, 10)
+        ul.setSpacing(10)
+        b_add = QPushButton(theme.icon("plus", "titel", 18), "  1  Dateien &hinzufügen…")
+        b_add.clicked.connect(self.dateien_waehlen)
+        ul.addWidget(b_add)
+        ul.addWidget(theme.rolle(QLabel("→"), "gedimmt"))
+        self.b_paket = QPushButton(theme.icon("paket", "primaer_text", 18), "  2  &Paket prüfen und erstellen…")
+        theme.rolle(self.b_paket, "primaer")
+        self.b_paket.clicked.connect(self.paket_erstellen)
+        ul.addWidget(self.b_paket)
+        ul.addWidget(theme.rolle(QLabel("→"), "gedimmt"))
+        self.b_outlook = QPushButton(theme.icon("mail", "titel", 18), "  3  &Outlook-Entwurf erstellen…")
+        self.b_outlook.clicked.connect(self.outlook)
+        ul.addWidget(self.b_outlook)
+        self.b_ordner = QPushButton(theme.icon("ordner", "titel", 18), "  Ordner öffnen")
+        self.b_ordner.clicked.connect(lambda: os.startfile(str(self.paket.ordner)) if self.paket else None)
+        ul.addWidget(self.b_ordner)
+        ul.addStretch(1)
+        for b_ in (b_add, self.b_paket, self.b_outlook, self.b_ordner):
+            b_.setMinimumWidth(b_.sizeHint().width())
         self.status = QLabel()
         self.status.setWordWrap(True)
-        unten.addWidget(self.status, 1)
-        self.b_paket = QPushButton("&Paket prüfen und erstellen…")
-        self.b_paket.clicked.connect(self.paket_erstellen)
-        unten.addWidget(self.b_paket)
-        self.b_ordner = QPushButton("Ordner öffnen")
-        self.b_ordner.clicked.connect(lambda: os.startfile(str(self.paket.ordner)) if self.paket else None)
-        unten.addWidget(self.b_ordner)
-        self.b_outlook = QPushButton("&Outlook-Entwurf erstellen…")
-        self.b_outlook.clicked.connect(self.outlook)
-        unten.addWidget(self.b_outlook)
-        lay.addLayout(unten)
+        self.status.setProperty("rolle", "gedimmt")
+        lay.addWidget(self.status)
+        lay.addWidget(unten)
 
         for taste, fn in (("Alt+Up", lambda: self.verschieben(-1)), ("Alt+Down", lambda: self.verschieben(1))):
             QShortcut(QKeySequence(taste), self, fn, context=Qt.WidgetWithChildrenShortcut)
         QShortcut(QKeySequence(Qt.Key_Delete), self.liste, self.entfernen, context=Qt.WidgetShortcut)
         self._ungueltig()
+        self._details()
+
+    def _details(self):
+        """Rechte Spalte: Nummer, Bezeichnung, Quelle, Seiten und Status der ausgewählten Anlage."""
+        it = self.liste.currentItem()
+        e = self.ausgewaehlt()
+        if not it or not e:
+            self.d_nummer.setText("–")
+            self.d_titel.setText("")
+            self.d_titel.setEnabled(False)
+            self.d_info.setText("Keine Anlage ausgewählt.")
+            theme.status_setzen(self.d_status, None, "")
+            return
+        self.d_titel.setEnabled(True)
+        self.d_nummer.setText(it.text(0))
+        if not self.d_titel.hasFocus():
+            self.d_titel.setText(it.text(1))
+        seiten = it.text(3)
+        self.d_info.setText(f"Quelldatei: {e.quelle.name}\nSeiten: "
+                            + ("wird beim Erstellen aus Word umgewandelt" if seiten == "Word" else seiten))
+        h = it.text(4)
+        if h.startswith("✖"):
+            theme.status_setzen(self.d_status, "fehler", h[1:].strip())
+        elif h.startswith("⚠"):
+            theme.status_setzen(self.d_status, "warn", h[1:].strip())
+        else:
+            theme.status_setzen(self.d_status, "ok", "bearbeitet" if "bearbeitet" in h else "In Ordnung")
+
+    def _detail_titel(self):
+        it = self.liste.currentItem()
+        if it and self.d_titel.text().strip() and self.d_titel.text() != it.text(1):
+            it.setText(1, self.d_titel.text().strip())
 
     # ------------------------------------------------------------- Daten
     BITTE_WARTEN = " – bitte warten …"
@@ -460,17 +579,20 @@ class AnlagenTab(QWidget):
             it.setText(4, text)
             for c in range(5):
                 if fehler or eigene:
-                    it.setForeground(c, QBrush(ROT if fehler else ORANGE))
+                    it.setForeground(c, QBrush(theme.status_farbe("fehler" if fehler else "warn")))
                 else:
                     it.setData(c, Qt.ForegroundRole, None)      # Standardfarbe (auch im dunklen Design lesbar)
         self.liste.blockSignals(False)
         self.hinweise.clear()
         for h in hinweise:
-            li = QListWidgetItem(("✖ " if h.stufe == "fehler" else "⚠ ") + h.text)
-            li.setForeground(QBrush(ROT if h.stufe == "fehler" else ORANGE))
+            art = "fehler" if h.stufe == "fehler" else "warn"
+            li = QListWidgetItem(theme.status_text(art, h.text))
+            li.setForeground(QBrush(theme.status_farbe(art)))
             self.hinweise.addItem(li)
         if not hinweise and self.eintraege:
-            self.hinweise.addItem(QListWidgetItem("✓ Keine Hinweise"))
+            li = QListWidgetItem(theme.status_text("ok", "Keine Hinweise – das Paket kann erstellt werden"))
+            li.setForeground(QBrush(theme.status_farbe("ok")))
+            self.hinweise.addItem(li)
         self._ungueltig()
         self._vorschau()
 
@@ -483,6 +605,7 @@ class AnlagenTab(QWidget):
 
     # ------------------------------------------------------------- Vorschau / Seitenaktionen
     def _vorschau(self):
+        self._details()
         self.seiten.clear()
         e = self.ausgewaehlt()
         if not e or not e.daten:
@@ -497,7 +620,7 @@ class AnlagenTab(QWidget):
             if p.number in e.drehvorschlag:
                 hinweis = " ⚠ gedreht?"
             it = QListWidgetItem(f"S. {p.number + 1}{hinweis}")
-            it.setIcon(qpixmap(pe.seitenbild(p, 120)))
+            it.setIcon(qpixmap(pe.seitenbild(p, 260)))
             self.seiten.addItem(it)
         doc.close()
 

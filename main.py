@@ -27,6 +27,8 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("BnX-Raptor")
     app.setApplicationVersion(__version__)
+    from ui import theme
+    theme.anwenden(app)
     try:
         cfg = load_config()
     except ConfigFehler as e:

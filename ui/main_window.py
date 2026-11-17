@@ -6,11 +6,11 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QEventLoop, QObject, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtCore import QEventLoop, QObject, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
-    QHeaderView, QLabel, QListWidget, QMainWindow, QMessageBox, QPushButton,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
+    QHeaderView, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -20,6 +20,7 @@ from core.update import ReleaseInfo, ist_neuer, neueste_release
 from version import __version__
 from workflows.base import AppContext, Field, Workflow
 
+from . import theme
 from .adressbuch_dialog import AdressbuchDialog
 from .akten_tab import AktenTab
 from .kanzlei_dialog import KanzleiDialog
@@ -117,7 +118,7 @@ class ReviewDialog(QDialog):
         lbl = self.hints[key]
         lbl.setText(text)
         warn = any(w in text for w in self.WARN_WOERTER)
-        lbl.setStyleSheet("color: #b45309;" if warn else "color: #15803d;")
+        lbl.setStyleSheet(f"color: {theme.F['warn'] if warn else theme.F['ok']};")
 
     def _fuellen(self, f: Field):
         box = self.editors[f.key]
@@ -230,30 +231,91 @@ class MainWindow(QMainWindow):
         # Güncelleme uyarı şeridi (yeni sürüm varsa görünür)
         self.update_band = QPushButton()
         self.update_band.setStyleSheet(
-            "background:#fef3c7; color:#92400e; border:1px solid #f59e0b; padding:6px; text-align:left;")
+            f"background:{theme.F['warn_grund']}; color:{theme.F['warn']}; border:none; "
+            f"border-bottom:1px solid {theme.F['rand']}; padding:8px 14px; text-align:left;")
         self.update_band.hide()
         self.update_band.clicked.connect(self.update_zeigen)
         self.release: ReleaseInfo | None = None
 
+        # Seiten (früher Reiter): Logik unverändert über self.tabs; sichtbar ist die Seitenleiste links.
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_work_tab(), "Bearbeiten")
+        self.tabs.tabBar().hide()
+        self.tabs.setDocumentMode(True)
+        self.start_seite = self._build_start_seite()
+        self.tabs.addTab(self.start_seite, "Start")
+        self.arbeit_seite = self._seite("Versicherungsschreiben vorbereiten",
+                                        "Word-Schreiben an eine Versicherung → PDF/A → E-Mail-Entwurf (wird nie gesendet).",
+                                        self._build_work_tab(), zurueck=True)
+        self.tabs.addTab(self.arbeit_seite, "Bearbeiten")
         # Anlagen-Assistent wird erst beim ersten Öffnen aufgebaut (PDF-Bibliothek nicht beim Start laden)
         self.anlagen_huelle = QWidget()
+        self.anlagen_huelle.setObjectName("seite")
         QVBoxLayout(self.anlagen_huelle).setContentsMargins(0, 0, 0, 0)
         self.anlagen_tab = None
         self.tabs.addTab(self.anlagen_huelle, "Anlagen")
+        self.pdf_seite = self._build_pdf_seite()
+        self.tabs.addTab(self.pdf_seite, "PDF-Editor")
         self.akten_tab = AktenTab(ctx)
-        self.tabs.addTab(self.akten_tab, "Akten")
+        self.akten_seite = self._seite("Akten", "Versicherungsakten: Schreiben, Antworten und E-Mails an Mandanten.",
+                                       self.akten_tab)
+        self.tabs.addTab(self.akten_seite, "Akten")
         self.verlauf_tab = self._build_history_tab()
-        self.tabs.addTab(self.verlauf_tab, "Verlauf")
+        self.einst_seite = self._build_einst_seite()
+        self.tabs.addTab(self.einst_seite, "Einstellungen")
         self.tabs.currentChanged.connect(self.tab_gewechselt)
 
+        self.nav = QListWidget()
+        self.nav.setObjectName("navigation")
+        self.nav.setIconSize(QSize(20, 20))
+        self._nav_seiten = [self.start_seite, self.anlagen_huelle, self.pdf_seite, self.akten_seite, self.einst_seite]
+        for i, (text, ic) in enumerate((("Start", "start"), ("Anlagen", "anlagen"), ("PDF-Editor", "pdf"),
+                                        ("Akten", "akten"), ("Einstellungen", "einstellungen"))):
+            it = QListWidgetItem(theme.icon(ic, "titel"), text)
+            it.setToolTip(f"{text} (Strg+{i + 1})")
+            self.nav.addItem(it)
+        self.nav.currentRowChanged.connect(lambda i: i >= 0 and self.tabs.setCurrentWidget(self._nav_seiten[i]))
+        for i in range(len(self._nav_seiten)):
+            QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.nav.setCurrentRow(i))
+        leiste = QWidget()
+        leiste.setObjectName("seitenleiste")
+        leiste.setAttribute(Qt.WA_StyledBackground, True)
+        leiste.setFixedWidth(208)
+        ll = QVBoxLayout(leiste)
+        ll.setContentsMargins(8, 18, 8, 14)
+        kopf = QHBoxLayout()
+        kopf.setContentsMargins(10, 0, 0, 0)
+        kopf.addWidget(theme.Marke(32))
+        marke = QLabel("BnX-Raptor")
+        marke.setObjectName("marke")
+        kopf.addWidget(marke)
+        kopf.addStretch(1)
+        ll.addLayout(kopf)
+        unter = QLabel("für Anwaltskanzleien")
+        unter.setObjectName("marke_klein")
+        unter.setContentsMargins(14, 0, 0, 12)
+        ll.addWidget(unter)
+        ll.addWidget(self.nav, 1)
+        ver = QLabel(f"Version {__version__} · Pilot")
+        ver.setObjectName("marke_klein")
+        ver.setContentsMargins(14, 0, 0, 0)
+        ll.addWidget(ver)
+
+        rechts = QWidget()
+        rl = QVBoxLayout(rechts)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+        rl.addWidget(self.update_band)
+        rl.addWidget(self.tabs, 1)
         zentral = QWidget()
-        zl = QVBoxLayout(zentral)
+        zl = QHBoxLayout(zentral)
         zl.setContentsMargins(0, 0, 0, 0)
-        zl.addWidget(self.update_band)
-        zl.addWidget(self.tabs, 1)
+        zl.setSpacing(0)
+        zl.addWidget(leiste)
+        zl.addWidget(rechts, 1)
         self.setCentralWidget(zentral)
+        self.resize(1180, 740)
+        self.setMinimumSize(980, 600)
+        self.nav.setCurrentRow(0)
 
         self._update_signal = _UpdateSignal()
         self._update_signal.gefunden.connect(self._update_ergebnis)
@@ -262,12 +324,147 @@ class MainWindow(QMainWindow):
 
     def tab_gewechselt(self, i: int):
         w = self.tabs.widget(i)
-        if w is self.akten_tab:
+        if w is self.akten_seite:
             self.akten_tab.laden()
-        elif w is self.verlauf_tab:
+        elif w is self.einst_seite:
             self.refresh_history()
         elif w is self.anlagen_huelle:
             self._anlagen_tab()
+        nav_seite = self.start_seite if w is self.arbeit_seite else w     # Versicherungsschreiben gehört zu „Start“
+        if hasattr(self, "nav") and nav_seite in self._nav_seiten:
+            self.nav.blockSignals(True)
+            self.nav.setCurrentRow(self._nav_seiten.index(nav_seite))
+            self.nav.blockSignals(False)
+
+    # --- Seiten (0.4.0: Start, PDF-Editor, Einstellungen) ---
+    def _seite(self, titel: str, unter: str, inhalt: QWidget, zurueck: bool = False) -> QWidget:
+        w = QWidget()
+        w.setObjectName("seite")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(28, 20, 28, 18)
+        lay.setSpacing(10)
+        kopf = QHBoxLayout()
+        if zurueck:
+            b = QPushButton("← Start")
+            theme.rolle(b, "link")
+            b.clicked.connect(lambda: self.tabs.setCurrentWidget(self.start_seite))
+            kopf.addWidget(b)
+        kopf.addWidget(theme.ueberschrift(titel, "h1"), 1)
+        lay.addLayout(kopf)
+        if unter:
+            lay.addWidget(theme.rolle(QLabel(unter), "gedimmt"))
+        lay.addWidget(inhalt, 1)
+        return w
+
+    def _aufgabe(self, symbol: str, titel: str, text: str, knopf: str, fn) -> QFrame:
+        k = theme.karte(QFrame(), klickbar=True)
+        lay = QVBoxLayout(k)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(8)
+        sym = QLabel()
+        sym.setPixmap(theme.icon(symbol, "primaer", 30).pixmap(30, 30))
+        lay.addWidget(sym)
+        lay.addWidget(theme.ueberschrift(titel, "h3"))
+        t = theme.rolle(QLabel(text), "gedimmt")
+        t.setWordWrap(True)
+        lay.addWidget(t, 1)
+        b = QPushButton(knopf)
+        b.clicked.connect(fn)
+        lay.addWidget(b, 0, Qt.AlignLeft)
+        k.mousePressEvent = lambda e, fn=fn: fn() if e.button() == Qt.LeftButton else None
+        k.setCursor(Qt.PointingHandCursor)
+        return k
+
+    def _build_start_seite(self) -> QWidget:
+        w = QWidget()
+        w.setObjectName("seite")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(32, 26, 32, 24)
+        lay.setSpacing(18)
+        k = self.ctx.kanzlei
+        self.l_gruss = theme.ueberschrift("Guten Tag" + (f" – {k.name}" if k.name else ""), "h2")
+        lay.addWidget(self.l_gruss)
+        haupt = theme.karte(QFrame())
+        hl = QHBoxLayout(haupt)
+        hl.setContentsMargins(30, 26, 26, 26)
+        links = QVBoxLayout()
+        links.setSpacing(10)
+        links.addWidget(theme.rolle(QLabel("ANLAGEN-ASSISTENT"), "akzent"), 0, Qt.AlignLeft)
+        links.addWidget(theme.ueberschrift("Schriftsatz und Anlagen vorbereiten", "h1"))
+        t = theme.rolle(QLabel("Word-Schriftsatz, Scans und PDFs hineinziehen, Anlagen ordnen und nummerieren, "
+                               "einzelne PDFs und ein Anlagenverzeichnis in Word erstellen – anschließend als "
+                               "Entwurf im klassischen Outlook prüfen."), "gedimmt")
+        t.setWordWrap(True)
+        links.addWidget(t)
+        links.addStretch(1)
+        b = QPushButton(theme.icon("paket", "primaer_text", 20), "  Anlagenpaket erstellen")
+        theme.rolle(b, "primaer")
+        b.setIconSize(QSize(20, 20))
+        b.clicked.connect(lambda: self.anlagen_oeffnen([]))
+        links.addWidget(b, 0, Qt.AlignLeft)
+        hl.addLayout(links, 3)
+        hl.addWidget(theme.SchriftsatzGrafik(), 2)
+        lay.addWidget(haupt, 3)
+        lay.addWidget(theme.ueberschrift("Weitere Aufgaben", "h2"))
+        reihe = QHBoxLayout()
+        reihe.setSpacing(16)
+        reihe.addWidget(self._aufgabe("pdf", "PDF bearbeiten", "Seiten ordnen, Text ändern, schwärzen und als Kopie speichern.",
+                                      "PDF öffnen…", lambda: self.pdf_bearbeiten()))
+        reihe.addWidget(self._aufgabe("ocr", "Scan durchsuchbar machen",
+                                      "Texterkennung auf diesem Rechner – Deutsch, Türkisch, Englisch.",
+                                      "Scan öffnen…", self.scan_durchsuchbar))
+        reihe.addWidget(self._aufgabe("mail", "Versicherungsschreiben vorbereiten",
+                                      "Word-Schreiben als PDF/A und E-Mail-Entwurf an die Versicherung.",
+                                      "Schreiben wählen…", self.versicherung_oeffnen))
+        lay.addLayout(reihe, 2)
+        return w
+
+    def _build_pdf_seite(self) -> QWidget:
+        inhalt = QWidget()
+        lay = QVBoxLayout(inhalt)
+        lay.setContentsMargins(0, 8, 0, 0)
+        lay.setSpacing(16)
+        reihe = QHBoxLayout()
+        reihe.setSpacing(16)
+        reihe.addWidget(self._aufgabe("pdf", "PDF öffnen", "Seiten, Text, Texterkennung (OCR) und endgültiges Schwärzen. "
+                                      "Das Original bleibt unverändert – gespeichert wird eine Kopie.",
+                                      "PDF öffnen…", lambda: self.pdf_bearbeiten()))
+        reihe.addWidget(self._aufgabe("ocr", "Scan durchsuchbar machen", "Öffnet den Scan und startet die Texterkennung "
+                                      "für alle Seiten.", "Scan öffnen…", self.scan_durchsuchbar))
+        lay.addLayout(reihe)
+        lay.addStretch(1)
+        return self._seite("PDF-Editor", "PDF-Dateien ansehen und bearbeiten – alles auf diesem Rechner.", inhalt)
+
+    def _build_einst_seite(self) -> QWidget:
+        inhalt = QWidget()
+        lay = QVBoxLayout(inhalt)
+        lay.setContentsMargins(0, 8, 0, 0)
+        lay.setSpacing(14)
+        reihe = QHBoxLayout()
+        reihe.setSpacing(16)
+        reihe.addWidget(self._aufgabe("kanzlei", "Kanzleidaten", "Name, Anschrift, E-Mail und Logo für Signatur und Briefkopf.",
+                                      "Kanzleidaten…", self.kanzleidaten_bearbeiten))
+        reihe.addWidget(self._aufgabe("adressbuch", "Versicherer-Adressbuch", "E-Mail-Adressen der Versicherer pflegen.",
+                                      "Versicherer-Adressbuch…", self.adressbuch_bearbeiten))
+        reihe.addWidget(self._aufgabe("info", "Programm", f"Version {__version__}. Updates werden nur angezeigt, nie "
+                                      "automatisch installiert.", "Nach Updates suchen",
+                                      lambda: self.update_pruefen(manuell=True)))
+        lay.addLayout(reihe)
+        lay.addWidget(theme.ueberschrift("Verlauf", "h2"))
+        lay.addWidget(self.verlauf_tab, 1)
+        return self._seite("Einstellungen", "Kanzleidaten, Adressbuch, Programm und Verlauf.", inhalt)
+
+    def scan_durchsuchbar(self):
+        name, _ = QFileDialog.getOpenFileName(self, "Scan durchsuchbar machen", "", "PDF (*.pdf)")
+        if name:
+            self.pdf_bearbeiten(Path(name), ocr_alle=True)
+
+    def versicherung_oeffnen(self):
+        i = next((i for i, wf in enumerate(self.workflows) if wf.id == "versicherung_brief"), 0)
+        self.wf_box.setCurrentIndex(i)
+        self.tabs.setCurrentWidget(self.arbeit_seite)
+        if not self.files.count():
+            self.pick_files()
 
     # --- PDF-Editor / Anlagen-Assistent (0.4) ---
     def _anlagen_tab(self):
@@ -283,7 +480,7 @@ class MainWindow(QMainWindow):
         if pfade:
             tab.hinzufuegen(pfade)
 
-    def pdf_bearbeiten(self, pfad: Path | None = None):
+    def pdf_bearbeiten(self, pfad: Path | None = None, ocr_alle: bool = False):
         if pfad is None:
             name, _ = QFileDialog.getOpenFileName(self, "PDF bearbeiten", "", "PDF (*.pdf)")
             if not name:
@@ -291,7 +488,11 @@ class MainWindow(QMainWindow):
             pfad = Path(name)
         from core.pdf_engine import SPRACHEN
         from .pdf_editor import PdfEditor
-        PdfEditor(self, pfad, sprachen=tuple(self.cfg.get("ocr_sprachen", SPRACHEN))).exec()
+        ed = PdfEditor(self, pfad, sprachen=tuple(self.cfg.get("ocr_sprachen", SPRACHEN)))
+        if ocr_alle and ed.sitzung:
+            ed.ocr_umfang.setCurrentText("Alle Seiten")
+            QTimer.singleShot(300, ed.ocr)
+        ed.exec()
 
     def _pdf_nachbearbeiten(self, pdf: Path) -> Path:
         """Word→PDF-Ablauf: erzeugtes PDF im Editor prüfen; danach zeigen, welche Fassung angehängt wird."""
@@ -310,6 +511,8 @@ class MainWindow(QMainWindow):
     def titel_aktualisieren(self):
         k = self.ctx.kanzlei
         self.setWindowTitle(f"BnX-Raptor {__version__}" + (f" – {k.name}" if k.name else ""))
+        if hasattr(self, "l_gruss"):
+            self.l_gruss.setText("Guten Tag" + (f" – {k.name}" if k.name else ""))
 
     # --- Güncelleme ---
     def update_pruefen(self, manuell: bool = False):
@@ -373,8 +576,10 @@ class MainWindow(QMainWindow):
 
     # --- İş sekmesi ---
     def _build_work_tab(self) -> QWidget:
-        w = QWidget()
+        w = theme.karte(QFrame())
         lay = QVBoxLayout(w)
+        lay.setContentsMargins(22, 18, 22, 18)
+        lay.setSpacing(8)
 
         self.wf_box = QComboBox()
         for wf in self.workflows:
@@ -384,6 +589,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(QLabel("Word-Dokumente hierher ziehen oder auswählen:"))
         self.files = DropList(self.add_files)
+        self.files.setToolTip("Word-Dateien (.docx) aus dem Explorer hierher ziehen")
         lay.addWidget(self.files)
 
         row = QHBoxLayout()
@@ -391,7 +597,8 @@ class MainWindow(QMainWindow):
         b_add.clicked.connect(self.pick_files)
         b_clear = QPushButton("Liste leeren")
         b_clear.clicked.connect(self.files.clear)
-        self.b_run = QPushButton("Starten")
+        self.b_run = QPushButton("&Starten")
+        theme.rolle(self.b_run, "primaer")
         self.b_run.setDefault(True)
         self.b_run.clicked.connect(self.run_all)
         row.addWidget(b_add)
@@ -417,6 +624,7 @@ class MainWindow(QMainWindow):
         for p in paths:
             if p.is_file() and wf.accepts(p) and str(p) not in existing:
                 self.files.addItem(str(p))
+                self.tabs.setCurrentWidget(self.arbeit_seite)
 
     def pick_files(self):
         names, _ = QFileDialog.getOpenFileNames(self, "Dokumente wählen", "", "Word (*.docx *.doc)")
@@ -426,7 +634,7 @@ class MainWindow(QMainWindow):
         wf = self.current_workflow()
         paths = [Path(self.files.item(i).text()) for i in range(self.files.count())]
         if not paths:
-            self.status.setText("Keine Dokumente in der Liste.")
+            theme.status_setzen(self.status, "warn", "Keine Dokumente in der Liste.")
             return
         zeit = float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90))
         # Word işi arka planda: pencere tepki vermeye devam eder, takılırsa süre sonunda biter
@@ -438,13 +646,15 @@ class MainWindow(QMainWindow):
             done = self._dokumente_bearbeiten(wf, paths)
         finally:
             self.b_run.setEnabled(True)
-        self.status.setText(f"{done} von {len(paths)} Dokument(en) bearbeitet.")
+        theme.status_setzen(self.status, "ok" if done == len(paths) else "warn",
+                            f"{done} von {len(paths)} Dokument(en) bearbeitet." + (f" {self._letzte}" if self._letzte else ""))
         self.files.clear()
 
     def _dokumente_bearbeiten(self, wf, paths: list[Path]) -> int:
         from core.word_service import WordService
 
         done = 0
+        self._letzte = ""
         for p in paths:
             if WordService.unsaved_in_running_word(p):
                 QMessageBox.warning(self, "Nicht gespeichert",
@@ -454,7 +664,7 @@ class MainWindow(QMainWindow):
             try:
                 QGuiApplication.setOverrideCursor(Qt.WaitCursor)
                 try:
-                    self.status.setText(f"{p.name}: Word liest das Dokument …")
+                    theme.status_setzen(self.status, None, f"⏳ {p.name}: Word liest das Dokument …")
                     fields = wf.prepare(p)
                 finally:
                     QGuiApplication.restoreOverrideCursor()
@@ -466,17 +676,17 @@ class MainWindow(QMainWindow):
 
                 QGuiApplication.setOverrideCursor(Qt.WaitCursor)
                 try:
-                    self.status.setText(f"{p.name}: PDF und Entwurf werden erstellt …")
+                    theme.status_setzen(self.status, None, f"⏳ {p.name}: PDF und Entwurf werden erstellt …")
                     res = wf.execute(p, dlg.values())
                 finally:
                     QGuiApplication.restoreOverrideCursor()
                 self.journal.add(wf.id, str(p), res.output, res.recipient, res.reference,
                                  "ok" if res.ok else "fehler", res.message)
-                self.status.setText(res.message)
+                self._letzte = res.message
                 done += 1
             except AbbruchDurchNutzer:
                 self.journal.add(wf.id, str(p), status="abgebrochen", meldung="Anhang nicht bestätigt")
-                self.status.setText(f"{p.name}: abgebrochen – kein Entwurf erstellt.")
+                self._letzte = f"{p.name}: abgebrochen – kein Entwurf erstellt."
             except Exception as e:  # noqa: BLE001
                 self.journal.add(wf.id, str(p), status="fehler",
                                  meldung=f"{e}\n{traceback.format_exc()}")

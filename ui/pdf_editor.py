@@ -9,15 +9,16 @@ from pathlib import Path
 
 import pymupdf
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QKeySequence, QPainter, QPen
+from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QGuiApplication, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-                               QScrollArea, QSplitter, QToolBar, QVBoxLayout, QWidget)
+                               QMenu, QScrollArea, QSplitter, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from core import pdf_engine as pe
 from core.pdf_sitzung import PdfSitzung
 
+from . import theme
 from .pdf_ui import im_thread, qpixmap
 
 MODI = [("auswahl", "Auswählen/Kopieren"), ("text", "Text bearbeiten"), ("einfuegen", "Text einfügen"),
@@ -60,12 +61,25 @@ class SeitenAnsicht(QWidget):
         g = QPainter(self)
         g.drawPixmap(0, 0, self.bild)
         for r, farbe, gefuellt in self.markierungen:
-            g.setPen(QPen(farbe, 2))
-            if gefuellt:
+            q = self._zu_bild(r)
+            if gefuellt:                       # vorgemerkte Schwärzung: schraffiert, kräftiger Rand, Etikett
                 f = QColor(farbe)
-                f.setAlpha(70)
-                g.fillRect(self._zu_bild(r), f)
-            g.drawRect(self._zu_bild(r))
+                f.setAlpha(60)
+                g.fillRect(q, f)
+                g.fillRect(q, QBrush(QColor(farbe), Qt.BDiagPattern))
+                g.setPen(QPen(farbe, 3))
+                g.drawRect(q)
+                etikett = QRect(q.left(), q.top() - 16, 92, 15)
+                g.fillRect(etikett, farbe)
+                g.setPen(QColor("#FFFFFF"))
+                fnt = g.font()
+                fnt.setPixelSize(10)
+                fnt.setBold(True)
+                g.setFont(fnt)
+                g.drawText(etikett, Qt.AlignCenter, "WIRD GESCHWÄRZT")
+            else:
+                g.setPen(QPen(farbe, 2))
+                g.drawRect(q)
         if self._start and self._ende:
             g.setPen(QPen(QColor("#2563eb"), 1, Qt.DashLine))
             g.drawRect(QRect(self._start, self._ende).normalized())
@@ -257,71 +271,129 @@ class PdfEditor(QDialog):
     # --- Aufbau ---
     def _aufbau(self, uebernehmen_text: str):
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
         tb = QToolBar()
+        tb.setIconSize(pymupdf_qsize(18, 18))
+        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         lay.addWidget(tb)
 
-        def act(text, fn, kurz=None, leiste=tb):
-            a = QAction(text, self)
+        def act(text, fn, kurz=None, leiste=tb, symbol=None):
+            a = QAction(theme.icon(symbol, "titel") if symbol else QIcon_leer(), text, self)
             a.triggered.connect(fn)
             if kurz:
                 a.setShortcut(QKeySequence(kurz))
-            leiste.addAction(a)
+                a.setToolTip(f"{text} ({QKeySequence(kurz).toString(QKeySequence.NativeText)})")
+            if leiste is not None:
+                leiste.addAction(a)
             return a
-        act("Öffnen…", self.oeffnen_dialog, "Ctrl+O")
-        self.a_speichern = act("Speichern unter…", self.speichern_unter, "Ctrl+Shift+S")
+        act("Öffnen…", self.oeffnen_dialog, "Ctrl+O", symbol="oeffnen")
+        self.a_speichern = act("Speichern unter…", self.speichern_unter, "Ctrl+Shift+S", symbol="speichern")
         if uebernehmen_text:
-            self.a_uebernehmen = act(uebernehmen_text, self.uebernehmen, "Ctrl+Return")
+            self.a_uebernehmen = act(uebernehmen_text, self.uebernehmen, "Ctrl+Return", symbol="uebernehmen")
+            knopf = tb.widgetForAction(self.a_uebernehmen)
+            if knopf:
+                theme.rolle(knopf, "haupt", "gruppe")
         tb.addSeparator()
-        self.a_undo = act("Rückgängig", self.rueckgaengig, "Ctrl+Z")
-        self.a_redo = act("Wiederholen", self.wiederholen, "Ctrl+Y")
+        self.a_undo = act("Rückgängig", self.rueckgaengig, "Ctrl+Z", symbol="rueckgaengig")
+        self.a_redo = act("Wiederholen", self.wiederholen, "Ctrl+Y", symbol="wiederholen")
         tb.addSeparator()
         act("−", lambda: self.zoomen(1 / 1.2), "Ctrl+-")
         act("+", lambda: self.zoomen(1.2), "Ctrl++")
         tb.addSeparator()
         self.suche = QLineEdit()
-        self.suche.setPlaceholderText("Suchen …")
-        self.suche.setMaximumWidth(220)
+        self.suche.setPlaceholderText("Suchen … (Strg+F)")
+        self.suche.setMaximumWidth(240)
         self.suche.returnPressed.connect(self.suchen)
         tb.addWidget(self.suche)
-        act("Weiter", self.naechster_treffer, "F3")
+        act("Weiter", self.naechster_treffer, "F3", symbol="lupe")
         a_suche = QAction(self)
         a_suche.setShortcut(QKeySequence("Ctrl+F"))
         a_suche.triggered.connect(lambda: (self.suche.setFocus(), self.suche.selectAll()))
         self.addAction(a_suche)
 
-        modus = QToolBar()
-        lay.addWidget(modus)
-        modus.addWidget(QLabel(" Werkzeug: "))
+        # Werkzeuge: Symbol + Beschriftung (Seiten · Text bearbeiten · OCR · Schwärzen …)
+        wz = QToolBar()
+        wz.setIconSize(pymupdf_qsize(26, 26))
+        wz.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        lay.addWidget(wz)
         self.modus_gruppe = QActionGroup(self)
         self.modus = "auswahl"
+        modus_aktion = {}
+        symbole = {"auswahl": "auswahl", "text": "text", "einfuegen": "einfuegen", "wort": "wort",
+                   "schwaerzen": "schwaerzen", "zuschnitt": "zuschnitt"}
         for key, text in MODI:
-            a = QAction(text, self)
+            a = QAction(theme.icon(symbole[key], "titel"), text, self)
             a.setCheckable(True)
             a.setChecked(key == "auswahl")
             a.triggered.connect(lambda _=False, k=key: self._modus_setzen(k))
             self.modus_gruppe.addAction(a)
-            modus.addAction(a)
+            modus_aktion[key] = a
 
-        seiten = QToolBar()
-        lay.addWidget(seiten)
-        seiten.addWidget(QLabel(" Seiten: "))
-        act("↺ Links drehen", lambda: self.drehen(-90), leiste=seiten)
-        act("↻ Rechts drehen", lambda: self.drehen(90), leiste=seiten)
-        act("Löschen", self.seiten_loeschen, leiste=seiten)
-        act("Duplizieren", self.duplizieren, leiste=seiten)
-        act("PDF/Bild einfügen…", self.einfuegen_datei, leiste=seiten)
-        act("Auswahl als PDF…", self.auswahl_speichern, leiste=seiten)
-        act("Aufteilen…", self.aufteilen, leiste=seiten)
-        seiten.addSeparator()
-        seiten.addWidget(QLabel(" Texterkennung: "))
+        def gruppe(a):
+            wz.addAction(a)
+            w = wz.widgetForAction(a)
+            if w:
+                theme.rolle(w, "haupt", "gruppe")
+        gruppe(modus_aktion["auswahl"])
+        wz.addSeparator()
+        # Seiten (Menü)
+        seiten_menu = QMenu(self)
+        act("↺ Links drehen", lambda: self.drehen(-90), leiste=seiten_menu)
+        act("↻ Rechts drehen", lambda: self.drehen(90), leiste=seiten_menu)
+        act("Löschen", self.seiten_loeschen, leiste=seiten_menu)
+        act("Duplizieren", self.duplizieren, leiste=seiten_menu)
+        seiten_menu.addSeparator()
+        act("PDF/Bild einfügen…", self.einfuegen_datei, leiste=seiten_menu)
+        act("Auswahl als PDF…", self.auswahl_speichern, leiste=seiten_menu)
+        act("Aufteilen…", self.aufteilen, leiste=seiten_menu)
+        b_seiten = QToolButton()
+        b_seiten.setText("Seiten")
+        b_seiten.setIcon(theme.icon("seiten", "titel"))
+        b_seiten.setIconSize(pymupdf_qsize(26, 26))
+        b_seiten.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        b_seiten.setPopupMode(QToolButton.InstantPopup)
+        b_seiten.setMenu(seiten_menu)
+        b_seiten.setToolTip("Seiten drehen, löschen, duplizieren, einfügen, aufteilen (markierte Seiten links)")
+        theme.rolle(b_seiten, "haupt", "gruppe")
+        wz.addWidget(b_seiten)
+        wz.addSeparator()
+        for k in ("text", "einfuegen", "wort"):
+            gruppe(modus_aktion[k])
+        wz.addSeparator()
+        # OCR (Klick = starten; Pfeil = Umfang, Ausrichtung)
         self.ocr_umfang = QComboBox()
         self.ocr_umfang.addItems(["Diese Seite", "Ausgewählte Seiten", "Alle Seiten"])
-        seiten.addWidget(self.ocr_umfang)
-        act("OCR starten", self.ocr, leiste=seiten)
-        act("Ausrichtung prüfen", self.ausrichtung_pruefen, leiste=seiten)
-        hinweis = QLabel("  Schräglagenkorrektur: noch nicht verfügbar")
-        hinweis.setStyleSheet("color:#6b7280")
-        seiten.addWidget(hinweis)
+        self.ocr_umfang.setToolTip("Umfang der Texterkennung")
+        ocr_menu = QMenu(self)
+        for i, text in enumerate(("Diese Seite", "Ausgewählte Seiten", "Alle Seiten")):
+            ocr_menu.addAction(f"OCR: {text}", lambda i=i: (self.ocr_umfang.setCurrentIndex(i), self.ocr()))
+        ocr_menu.addSeparator()
+        act("Ausrichtung prüfen", self.ausrichtung_pruefen, leiste=ocr_menu)
+        schraeg = ocr_menu.addAction("Schräglagenkorrektur: noch nicht verfügbar")
+        schraeg.setEnabled(False)
+        a_ocr = QAction(theme.icon("ocr", "titel"), "OCR", self)
+        a_ocr.setToolTip("Texterkennung (Deutsch, Türkisch, Englisch) für den gewählten Umfang starten")
+        a_ocr.triggered.connect(self.ocr)
+        b_ocr = QToolButton()
+        b_ocr.setDefaultAction(a_ocr)
+        b_ocr.setIconSize(pymupdf_qsize(26, 26))
+        b_ocr.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        b_ocr.setPopupMode(QToolButton.MenuButtonPopup)
+        b_ocr.setMenu(ocr_menu)
+        theme.rolle(b_ocr, "haupt", "gruppe")
+        wz.addWidget(b_ocr)
+        umfang = QWidget()
+        ul = QVBoxLayout(umfang)
+        ul.setContentsMargins(4, 0, 4, 0)
+        ul.addWidget(theme.rolle(QLabel("Umfang:"), "gedimmt"))
+        ul.addWidget(self.ocr_umfang)
+        wz.addWidget(umfang)
+        wz.addSeparator()
+        gruppe(modus_aktion["schwaerzen"])
+        wz.addSeparator()
+        gruppe(modus_aktion["zuschnitt"])
+        self.a_ocr = a_ocr
 
         split = QSplitter()
         self.thumbs = QListWidget()
@@ -342,11 +414,16 @@ class PdfEditor(QDialog):
         split.addWidget(sc)
         rechts = QWidget()
         rl = QVBoxLayout(rechts)
-        rl.addWidget(QLabel("<b>Hinweise / zu prüfen</b>"))
+        rl.addWidget(theme.ueberschrift("Hinweise / zu prüfen", "h3"))
         self.hinweise = QListWidget()
         self.hinweise.itemActivated.connect(self._hinweis_gewaehlt)
         self.hinweise.itemClicked.connect(self._hinweis_gewaehlt)
         rl.addWidget(self.hinweise, 1)
+        rl.addSpacing(8)
+        rl.addWidget(theme.ueberschrift("Schwärzen", "h3"))
+        self.l_schwaerzen = QLabel()
+        self.l_schwaerzen.setWordWrap(True)
+        rl.addWidget(self.l_schwaerzen)
         self.b_schwaerzen = QPushButton("Schwärzungen &anwenden (0)")
         self.b_schwaerzen.clicked.connect(self.schwaerzungen_anwenden)
         rl.addWidget(self.b_schwaerzen)
@@ -357,12 +434,15 @@ class PdfEditor(QDialog):
         b_verwerfen.clicked.connect(self._vormerkungen_verwerfen)
         rl.addWidget(b_verwerfen)
         rechts.setMaximumWidth(330)
+        rl.setContentsMargins(10, 10, 10, 10)
         split.addWidget(rechts)
         split.setStretchFactor(1, 1)
         lay.addWidget(split, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
+        self.status.setContentsMargins(12, 4, 12, 6)
         lay.addWidget(self.status)
+        self._schwaerz_anzeige()
         # Kein "Standardknopf": Enter im Suchfeld darf nicht versehentlich „Schwärzungen anwenden“ auslösen
         for b in self.findChildren(QPushButton):
             b.setAutoDefault(False)
@@ -411,14 +491,14 @@ class PdfEditor(QDialog):
         self._anzeigen()
         self.a_undo.setEnabled(s.kann_rueckgaengig)
         self.a_redo.setEnabled(s.kann_wiederholen)
-        self.b_schwaerzen.setText(f"Schwärzungen &anwenden ({len(self.offen)})")
+        self._schwaerz_anzeige()
         self._titel()
 
     def _anzeigen(self):
         s = self.sitzung
         page = s.doc[self.seite]
         self.ansicht.zeigen(page, self.zoom)
-        m = [(r, QColor("#dc2626"), True) for n, r in self.offen if n == self.seite]
+        m = [(r, theme.status_farbe("fehler"), True) for n, r in self.offen if n == self.seite]
         m += [(r, QColor("#f59e0b"), False) for n, r in self.treffer if n == self.seite]
         m += [(w.rect, QColor("#2563eb"), False) for w in self.ocr_worte.get(self.seite, [])
               if w.conf < 80 or w.geschuetzt]
@@ -444,6 +524,18 @@ class PdfEditor(QDialog):
         self.modus = k
         if self.sitzung:
             self._anzeigen()
+
+    def _schwaerz_anzeige(self):
+        """Zähler + Hinweis: vorgemerkte Bereiche sind noch NICHT geschwärzt (gelb), keine (neutral)."""
+        n = len(self.offen)
+        self.b_schwaerzen.setText(f"Schwärzungen &anwenden ({n})")
+        theme.rolle(self.b_schwaerzen, "gefahr" if n else "")
+        if n:
+            theme.status_setzen(self.l_schwaerzen, "warn", f"{n} Bereich(e) vorgemerkt – noch nicht geschwärzt. "
+                                "Erst „Schwärzungen anwenden“ entfernt Text und Bild endgültig.")
+        else:
+            theme.status_setzen(self.l_schwaerzen, None, "Werkzeug „Schwärzen“ wählen und Bereich aufziehen "
+                                "oder Suchtreffer vormerken.")
 
     def _hinweis(self, text: str, daten=None):
         it = QListWidgetItem(text)
@@ -523,7 +615,7 @@ class PdfEditor(QDialog):
             self.status.setText(f"{len(text)} Zeichen kopiert." if text else "Kein Text im Bereich.")
         elif self.modus == "schwaerzen":
             self.offen.append((self.seite, r))
-            self.b_schwaerzen.setText(f"Schwärzungen &anwenden ({len(self.offen)})")
+            self._schwaerz_anzeige()
             self._anzeigen()
         elif self.modus == "zuschnitt":
             if QMessageBox.question(self, "Zuschneiden", "Seite auf den markierten Bereich zuschneiden?") \
@@ -533,7 +625,7 @@ class PdfEditor(QDialog):
     # --- Schwärzen ---
     def treffer_vormerken(self):
         self.offen += [(n, r + (-1, -1, 1, 1)) for n, r in self.treffer]
-        self.b_schwaerzen.setText(f"Schwärzungen &anwenden ({len(self.offen)})")
+        self._schwaerz_anzeige()
         self._anzeigen()
 
     def _vormerkungen_verwerfen(self):
@@ -826,6 +918,11 @@ class PdfEditor(QDialog):
             e.accept()
         else:
             e.ignore()
+
+
+def QIcon_leer():
+    from PySide6.QtGui import QIcon
+    return QIcon()
 
 
 def pymupdf_qsize(w: int, h: int):
