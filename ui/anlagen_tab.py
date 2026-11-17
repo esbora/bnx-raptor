@@ -154,7 +154,7 @@ class AnlagenTab(QWidget):
         unten die Schritte in Arbeitsreihenfolge. Alt-Kürzel unverändert (H, S, N, L, R, V, D, Ö, G, T, E, P, O)."""
         self.setObjectName("seite")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 16, 24, 14)
+        lay.setContentsMargins(18, 14, 18, 12)
         lay.setSpacing(10)
         kopf = QHBoxLayout()
         kopf.addWidget(theme.ueberschrift("Anlagen-Assistent", "h1"))
