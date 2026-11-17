@@ -493,7 +493,9 @@ def _tesseract(png: bytes, *args: str, timeout: int = 180) -> str:
     # Tesseract scheitert an Pfaden mit Umlauten (z. B. „C:\Users\Müller\…“, „Masaüstü“): „Cannot convert
     # character sequence“. Deshalb: Bild über stdin (keine Temp-Datei), Arbeitsordner = ocr\, Sprachdaten
     # über den relativen, reinen ASCII-Pfad „tessdata“.
-    env = dict(os.environ, TESSDATA_PREFIX="tessdata")
+    # OMP_THREAD_LIMIT=1: Tesseract 5.5.4 (MSYS2) nutzt OpenMP; BnX startet je Sprache einen eigenen Prozess
+    # parallel – ohne Begrenzung überbuchen sich die Threads (gemessen 2–3× langsamer).
+    env = dict(os.environ, TESSDATA_PREFIX="tessdata", OMP_THREAD_LIMIT="1")
     r = subprocess.run([str(ordner / "tesseract.exe"), "stdin", "stdout", *args],
                        input=png, capture_output=True, env=env, cwd=str(ordner), timeout=timeout,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

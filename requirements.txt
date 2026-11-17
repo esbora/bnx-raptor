@@ -3,3 +3,4 @@ pywin32>=306; sys_platform == "win32"
 pyinstaller>=6.0
 pytest>=8.0
 pymupdf==2.1   # 0.4 PDF-Editor (AGPL-3.0 – Lizenzentscheidung offen)
+zstandard==0.23.0  # nur Build: entpackt MSYS2-Pakete (tools/ocr_bereitstellen.py)

@@ -15,4 +15,5 @@
 - Rückgängig/Wiederholen, „Speichern unter…“ in eine neue Datei (das Original bleibt immer unverändert), Warnung bei ungespeicherten Änderungen. Digital signierte PDFs werden erkannt; Änderungen werden nur als Kopie gespeichert.
 - Versicherungsschreiben: neue Option „PDF vor dem Entwurf im PDF-Editor prüfen/bearbeiten“; anschließend wird angezeigt, welche Fassung angehängt wird.
 - Beschädigte PDFs mit fehlerhaftem Seitenverzeichnis führen jetzt zu einer verständlichen Meldung statt zu einem technischen Fehler.
+- Texterkennung auf Tesseract 5.5.4 aktualisiert (behebt mehrere Sicherheitsprobleme der Vorversion, u. a. einen möglichen Absturz bei mehreren Sprachen). Das Erkennungsergebnis bleibt gleich; die Erkennung dauert etwas länger.
 - Programmpaket: nicht benötigte Qt-Netzwerk-, Verschlüsselungs- und Bildformat-Bibliotheken entfernt. Lizenzhinweise der mitgelieferten Komponenten vervollständigt; der Quellcode der mitgelieferten GPL/LGPL-Bibliotheken der Texterkennung liegt im Ordner „quellcode-drittanbieter“ bei.

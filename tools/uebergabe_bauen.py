@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import subprocess
 import zipfile
 from pathlib import Path
@@ -17,6 +18,16 @@ from pathlib import Path
 KOK = Path(__file__).resolve().parent.parent
 ANLEITUNG = KOK / "docs" / "CRA" / "05_Benutzerinformationen_und_Installation_DE.pdf"
 VERBOTEN = (".sqlite", ".db", ".msg", ".eml", "config.json", "kanzlei.json", ".bnx-tmp")
+
+
+def hersteller() -> dict:
+    """Angaben aus docs/CRA/hersteller.json (vom Projektinhaber); fehlende bleiben OFFEN."""
+    h = json.loads((KOK / "docs" / "CRA" / "hersteller.json").read_text(encoding="utf-8"))
+    return {"hersteller": h["name"], "email": h["email"],
+            "anschrift": "OFFEN (noch nicht angegeben)" if h["postanschrift"] == "OFFEN" else h["postanschrift"],
+            "satz": ("Bitte melden Sie mögliche Sicherheitslücken oder Sicherheitsvorfälle per E-Mail an "
+                     f"{h['sicherheitskontakt']}. Verwenden Sie nach Möglichkeit den Betreff ‚{h['betreff_sicherheitsmeldung']}‘ "
+                     "und senden Sie keine vertraulichen Mandantendaten mit.")}
 
 
 def version() -> str:
@@ -59,8 +70,12 @@ Das Programm arbeitet lokal. Dokumente und OCR-Text werden nicht an Dritte über
 Einzige Internetverbindung: Abfrage, ob eine neue Version vorliegt (abschaltbar, siehe Anleitung).
 E-Mails werden nie automatisch gesendet; es entstehen nur Entwürfe.
 
-Hersteller / Kontakt / Meldung von Sicherheitsproblemen:
-[OFFEN – vom Hersteller vor der Weitergabe einzutragen]
+Hersteller: {hersteller}
+Postanschrift: {anschrift}
+E-Mail: {email}
+
+Meldung von Sicherheitsproblemen:
+{satz}
 """
 
 
@@ -86,7 +101,7 @@ def main() -> None:
             if f.is_file():
                 z.write(f, Path(name) / "BnX-Raptor" / f.relative_to(a.paket))
         z.write(ANLEITUNG, Path(name) / f"Installationsanleitung_BnX-Raptor_{v}.pdf")
-        z.writestr(str(Path(name) / "LIESMICH.txt"), LIESMICH.format(v=v, c=c, name=zip_pfad.name)
+        z.writestr(str(Path(name) / "LIESMICH.txt"), LIESMICH.format(v=v, c=c, name=zip_pfad.name, **hersteller())
                    .replace("\n", "\r\n").encode("utf-8-sig"))
     sha = hashlib.sha256(zip_pfad.read_bytes()).hexdigest()
     (a.ausgabe / f"{zip_pfad.name}.sha256").write_text(f"{sha}  {zip_pfad.name}\n", encoding="ascii")

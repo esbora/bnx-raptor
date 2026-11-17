@@ -20,7 +20,6 @@ from pathlib import Path
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK / "tools"))
-from paket_bauen import ZUORDNUNG  # noqa: E402
 
 
 def dateiversion(p: Path) -> str:
@@ -55,25 +54,21 @@ def logische(paket: Path, version: str) -> list[dict]:
         ("libffi", "libffi", dateiversion(i / "libffi-8.dll"), "MIT", "https://sourceware.org/libffi/", "", None),
         ("msvc", "Microsoft Visual C++ Runtime", dateiversion(i / "VCRUNTIME140.dll"), "LicenseRef-Microsoft-Distributable-Code",
          "Microsoft", "Weitergabebedingungen juristisch prüfen", None),
-        ("tesseract", "Tesseract OCR (UB-Mannheim-Build)", "5.5.3.20260724", "Apache-2.0",
-         "https://github.com/tesseract-ocr/tesseract/releases/tag/5.5.3", "Setup-SHA-256 bee9e343…0ae4 geprüft", "pkg:github/tesseract-ocr/tesseract@5.5.3"),
+        ("tesseract", "Tesseract OCR 5.5.4 mit Laufzeitbibliotheken (MSYS2 mingw64)", "5.5.4", "Apache-2.0",
+         "https://repo.msys2.org/mingw/mingw64/", "34 MSYS2-Pakete, PGP-Signatur geprüft, SHA-256 fest im Build-Skript; "
+         "Version je Datei siehe Dateikomponenten", "pkg:github/tesseract-ocr/tesseract@5.5.4"),
         ("tessdata", "Tesseract-Sprachdaten deu/tur/eng (tessdata_best) + osd (tessdata)", "4.1.0", "Apache-2.0",
          "https://github.com/tesseract-ocr/tessdata_best/tree/4.1.0", "SHA-256 je Datei im Build geprüft", None),
     ]
     return [{"ref": r, "name": n, "version": v, "lizenz": li, "quelle": q, "hinweis": h, "purl": pu} for r, n, v, li, q, h, pu in L]
 
 
-MSYS2 = json.loads((KOK / "lizenzen" / "drittanbieter" / "MSYS2-Zuordnung.json").read_text(encoding="utf-8"))
-EIGEN = {  # nicht aus MSYS2 (Build des Tesseract-Herstellers); Version laut `tesseract --version`
-    "tesseract.exe": "5.5.3", "libtesseract-5.dll": "5.5.3", "libcurl-4.dll": "8.21.0 (Schannel)", "libssh2-1.dll": "1.11.1",
-}
+OCR_HERKUNFT: dict = {}   # aus <paket>/lizenzen/OCR-PAKETE.json (tools/ocr_bereitstellen.py), in main() geladen
 
 
 def ocr_version(name: str) -> tuple[str, str]:
-    n = name.lower()
-    if n in MSYS2:
-        return MSYS2[n]["version"], MSYS2[n]["paket"]
-    return EIGEN.get(n, "unbekannt"), ""
+    h = OCR_HERKUNFT.get(name.lower())
+    return (h["version"], h["paket"]) if h else ("unbekannt", "")
 
 
 def zuordnen(rel: str) -> tuple[str, str]:
@@ -83,8 +78,8 @@ def zuordnen(rel: str) -> tuple[str, str]:
     if r.startswith("ocr/tessdata/") and r.endswith(".traineddata"):
         return "tessdata", ""
     if r.startswith("ocr/"):
-        komp = next((k for pre, k, *_ in ZUORDNUNG if r.startswith(pre.lower())), "")
-        return "tesseract", komp
+        h = OCR_HERKUNFT.get(r[4:])
+        return "tesseract", (h["paket"].replace("mingw-w64-x86_64-", "") + " " + h["version"]) if h else ""
     if r.startswith("_internal/pymupdf"):
         return "pymupdf", ""
     if r.startswith("_internal/pyside6"):
@@ -120,6 +115,9 @@ def main() -> None:
     ns: dict = {}
     exec((KOK / "version.py").read_text(encoding="utf-8"), ns)
     version = ns["__version__"]
+    j = a.paket / "lizenzen" / "OCR-PAKETE.json"
+    if j.exists():
+        OCR_HERKUNFT.update(json.loads(j.read_text(encoding="utf-8")))
     log = logische(a.paket, version)
     komps, deps = [], {x["ref"]: [] for x in log}
     for x in log:
@@ -151,19 +149,22 @@ def main() -> None:
                                      {"name": "bsi:component:archive", "value": "archive" if archiv else "no archive"},
                                      {"name": "bsi:component:structured", "value": "structured" if archiv else "unstructured"}]
                       + ([{"name": "bnx:komponente", "value": detail}] if detail else [])
-                      + ([{"name": "bnx:msys2-paket", "value": f"{msys} {ver} (SHA-256-identisch mit MSYS2-Binärpaket)"}]
+                      + ([{"name": "bnx:msys2-paket", "value": f"{msys} {ver} (aus MSYS2-Binärpaket, Signatur geprüft)"}]
                          if msys else [])})
         deps[log_ref].append(ref)
         dateien += 1
+    H = json.loads((KOK / "docs" / "CRA" / "hersteller.json").read_text(encoding="utf-8"))
     zip_sha512 = hashlib.sha512(a.zip.read_bytes()).hexdigest()
     bom = {
         "bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": f"urn:uuid:{uuid.uuid4()}", "version": 1,
         "metadata": {
+            "manufacturer": {"name": H["name"], "contact": [{"name": H["name"], "email": H["email"]}]},
+            "authors": [{"name": H["name"], "email": H["email"]}],
             "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "tools": {"components": [{"type": "application", "name": "tools/sbom_erzeugen.py (BnX-Raptor)"}]},
             "component": {"type": "application", "bom-ref": "produkt", "name": "BnX-Raptor", "version": version,
                           "properties": [{"name": "bnx:commit", "value": a.commit},
-                                         {"name": "bnx:hersteller", "value": "OFFEN – Herstellerangaben fehlen"}],
+                                         {"name": "bnx:hersteller-postanschrift", "value": H.get("postanschrift", "OFFEN")}],
                           "externalReferences": [{"type": "distribution", "url": "file:" + a.zip.name,
                                                   "hashes": [{"alg": "SHA-512", "content": zip_sha512}]}]},
         },
@@ -176,11 +177,11 @@ def main() -> None:
     kurz = {"datei": a.ziel.name, "format": "1.6", "dateien": dateien, "logisch_anzahl": len(log), "logisch": log,
             "unbekannte_dll_versionen": unbekannt,
             "luecken": [
-                "Herstellerangaben (SBOM-Ersteller/Kontakt) fehlen – Pflichtfeld nach TR-03183-2.",
+                "Postanschrift des Herstellers fehlt (Name und E-Mail eingetragen).",
                 "Projektlizenz BnX-Raptor nicht festgelegt (NOASSERTION).",
                 "Qt-interne Drittbibliotheken: Hinweise laut Qt-6.12-Dokumentation beigelegt (lizenzen/drittanbieter/qt), nicht einzeln als SBOM-Komponente mit Version erfasst.",
                 "In MuPDF eingebaute Drittbibliotheken: Lizenztexte aus offiziellem Quellpaket 1.28.6 beigelegt; Versionen nicht einzeln erfasst.",
-                "Tesseract-Dateien ohne exakte Version (nicht MSYS2-identisch, nicht in `tesseract --version`): " + (", ".join(unbekannt) or "keine") + ".",
+                "OCR-Dateien ohne Herkunftsangabe: " + (", ".join(unbekannt) or "keine") + ".",
                 "Microsoft-VC++-Laufzeit: Weitergabebedingungen nicht juristisch geprüft.",
                 "Lizenztext-Lücken für Weitergabe: siehe lizenzen/DLL-LISTE.txt (Einträge mit OFFEN).",
             ]}

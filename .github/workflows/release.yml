@@ -46,7 +46,7 @@ jobs:
           python -m pytest -q tests
 
       # 0.4: yerel build.bat ile AYNI adımlar (BnX-Raptor.spec + tools/*.py)
-      - name: OCR bileşeni (Tesseract 5.5.3 + deu/tur/eng/osd, SHA-256 doğrulamalı)
+      - name: OCR bileşeni (Tesseract 5.5.4 MSYS2 paketleri + deu/tur/eng/osd, SHA-256 doğrulamalı)
         if: steps.ver.outputs.skip == 'false'
         run: python tools/ocr_bereitstellen.py
 

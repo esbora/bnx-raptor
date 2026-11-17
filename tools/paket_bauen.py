@@ -10,6 +10,7 @@ Kullanım:  python tools/paket_bauen.py [--ausgabe KLASÖR]   (Standard: ./dist)
 from __future__ import annotations
 
 import argparse
+import json
 import hashlib
 import os
 import shutil
@@ -45,6 +46,10 @@ def lizenzen_sammeln(ziel: Path) -> list[str]:
     kopien.update({n: p for n, p in funde.items() if p and p.exists()})
     for name, quelle in sorted(kopien.items()):
         shutil.copy2(quelle, ziel / name)
+    if (BAU / "lizenzen_ocr" / "msys2").exists():                 # Lizenzdateien der MSYS2-Pakete (OCR)
+        shutil.copytree(BAU / "lizenzen_ocr" / "msys2", ziel / "drittanbieter-ocr", dirs_exist_ok=True)
+    if (BAU / "ocr_herkunft.json").exists():
+        shutil.copy2(BAU / "ocr_herkunft.json", ziel / "OCR-PAKETE.json")
     if (KOK / "lizenzen" / "drittanbieter").exists():          # offizielle Texte (tools/lizenztexte_holen.py)
         shutil.copytree(KOK / "lizenzen" / "drittanbieter", ziel / "drittanbieter", dirs_exist_ok=True)
     return fehlend
@@ -52,44 +57,6 @@ def lizenzen_sammeln(ziel: Path) -> list[str]:
 
 # Zuordnung Datei → (Komponente, Lizenz, Lizenztext im Ordner lizenzen\)
 ZUORDNUNG = [
-    ("ocr/tesseract.exe", "Tesseract OCR 5.5.3", "Apache-2.0", "Tesseract-LICENSE-Apache-2.0.txt"),
-    ("ocr/libtesseract", "Tesseract OCR 5.5.3", "Apache-2.0", "Tesseract-LICENSE-Apache-2.0.txt"),
-    ("ocr/libleptonica", "Leptonica 1.87.0", "BSD-2-Clause", "drittanbieter/Leptonica-LICENSE.txt"),
-    ("ocr/libstdc++", "GCC libstdc++", "GPL-3.0 + GCC Runtime Exception 3.1",
-     "GPL-3.0.txt, drittanbieter/GCC-Runtime-Exception-3.1.txt"),
-    ("ocr/libgcc_s", "GCC libgcc", "GPL-3.0 + GCC Runtime Exception 3.1",
-     "GPL-3.0.txt, drittanbieter/GCC-Runtime-Exception-3.1.txt"),
-    ("ocr/libwinpthread", "MinGW-w64 winpthreads", "MIT/BSD", "drittanbieter/winpthreads-COPYING.txt"),
-    ("ocr/libarchive", "libarchive 3.8.8", "BSD-2-Clause", "drittanbieter/libarchive-COPYING.txt"),
-    ("ocr/libb2", "libb2 (BLAKE2)", "CC0-1.0", "drittanbieter/libb2-COPYING.txt"),
-    ("ocr/libbrotli", "Brotli 1.2.0", "MIT", "drittanbieter/brotli-LICENSE.txt"),
-    ("ocr/libbz2", "bzip2 1.0.8", "bzip2-1.0.6", "drittanbieter/bzip2-LICENSE.txt"),
-    ("ocr/libcurl", "curl 8.21.0", "curl", "drittanbieter/curl-COPYING.txt"),
-    ("ocr/libdeflate", "libdeflate", "MIT", "drittanbieter/libdeflate-COPYING.txt"),
-    ("ocr/libexpat", "Expat 2.8.2", "MIT", "drittanbieter/expat-COPYING.txt"),
-    ("ocr/libgif", "giflib 6.1.3", "MIT", "drittanbieter/giflib-COPYING.txt"),
-    ("ocr/libiconv", "GNU libiconv", "LGPL-2.1-or-later", "drittanbieter/LGPL-2.1.txt + Quellcode: quellcode-drittanbieter/mingw-w64-libiconv-1.19-1.src.tar.zst"),
-    ("ocr/libidn2", "libidn2 2.3.8", "LGPL-3.0-or-later ODER GPL-2.0-or-later",
-     "drittanbieter/libidn2-COPYING.LESSERv3.txt, drittanbieter/libidn2-COPYINGv2.txt + Quellcode: quellcode-drittanbieter/mingw-w64-libidn2-2.3.8-4.src.tar.zst"),
-    ("ocr/libintl", "GNU gettext (libintl)", "LGPL-2.1-or-later", "drittanbieter/LGPL-2.1.txt + Quellcode: quellcode-drittanbieter/mingw-w64-gettext-1.0-1.src.tar.zst"),
-    ("ocr/libjbig", "JBIG-KIT 2.1", "GPL-2.0-or-later",
-     "drittanbieter/JBIG-KIT-COPYING.txt, drittanbieter/JBIG-KIT-jbig.c-Lizenzkopf.txt + Quellcode: quellcode-drittanbieter/mingw-w64-jbigkit-2.1-5.src.tar.zst"),
-    ("ocr/libjpeg", "libjpeg-turbo 3.2.0", "IJG + BSD-3-Clause + zlib",
-     "drittanbieter/libjpeg-turbo-LICENSE.md, drittanbieter/libjpeg-turbo-README.ijg.txt"),
-    ("ocr/liblerc", "LERC", "Apache-2.0", "drittanbieter/lerc-LICENSE.txt"),
-    ("ocr/liblz4", "LZ4 1.10.0", "BSD-2-Clause", "drittanbieter/lz4-LICENSE.txt"),
-    ("ocr/liblzma", "XZ Utils 5.8.3", "0BSD", "drittanbieter/xz-COPYING.txt, drittanbieter/xz-COPYING.0BSD.txt"),
-    ("ocr/libopenjp2", "OpenJPEG 2.5.4", "BSD-2-Clause", "drittanbieter/OpenJPEG-LICENSE.txt"),
-    ("ocr/libpng16", "libpng 1.6.58", "libpng-2.0", "drittanbieter/libpng-LICENSE.txt"),
-    ("ocr/libpsl", "libpsl 0.21.5", "MIT", "drittanbieter/libpsl-COPYING.txt"),
-    ("ocr/libsharpyuv", "libwebp 1.6.0 (sharpyuv)", "BSD-3-Clause", "drittanbieter/libwebp-COPYING.txt"),
-    ("ocr/libssh2", "libssh2 1.11.1", "BSD-3-Clause", "drittanbieter/libssh2-COPYING.txt"),
-    ("ocr/libtiff", "libtiff 4.7.2", "libtiff", "drittanbieter/libtiff-LICENSE.md"),
-    ("ocr/libunistring", "GNU libunistring", "LGPL-3.0-or-later ODER GPL-2.0-or-later",
-     "LGPL-3.0.txt, drittanbieter/GPL-2.0.txt + Quellcode: quellcode-drittanbieter/mingw-w64-libunistring-1.4.2-1.src.tar.zst"),
-    ("ocr/libwebp", "libwebp 1.6.0", "BSD-3-Clause", "drittanbieter/libwebp-COPYING.txt, drittanbieter/libwebp-PATENTS.txt"),
-    ("ocr/libzstd", "Zstandard 1.5.7", "BSD-3-Clause", "drittanbieter/zstd-LICENSE.txt"),
-    ("ocr/zlib1", "zlib 1.3.2", "Zlib", "drittanbieter/zlib-LICENSE.txt"),
     ("_internal/pymupdf/", "MuPDF/PyMuPDF (Artifex)", "AGPL-3.0 ODER kommerziell",
      "PyMuPDF-COPYING-AGPL-3.0.txt, drittanbieter/mupdf/ (Drittbibliotheken aus offiziellem Quellpaket 1.28.6)"),
     ("_internal/PySide6/opengl32sw", "Mesa llvmpipe (Software-OpenGL von Qt)", "MIT (+ LLVM Apache-2.0)",
@@ -123,6 +90,35 @@ ZUORDNUNG = [
 ]
 
 
+Q = "quellcode-drittanbieter/"
+GCC = "GPL-3.0.txt, drittanbieter/GCC-Runtime-Exception-3.1.txt; Quellcode: https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.2.0-7.src.tar.zst (nicht beigelegt) – juristisch bestätigen"
+OCR_ZUSATZ = {  # MSYS2-Paket → zusätzliche Lizenztexte/Quellcode (neben lizenzen/drittanbieter-ocr/<paket>/)
+    "jbigkit": "drittanbieter/JBIG-KIT-COPYING.txt, drittanbieter/JBIG-KIT-jbig.c-Lizenzkopf.txt; Quellcode: " + Q + "mingw-w64-jbigkit-2.1-6.src.tar.zst",
+    "libiconv": "Quellcode: " + Q + "mingw-w64-libiconv-1.19.1-1.src.tar.zst",
+    "gettext-runtime": "Quellcode: " + Q + "mingw-w64-gettext-1.0-1.src.tar.zst",
+    "libunistring": "Quellcode: " + Q + "mingw-w64-libunistring-1.4.2-1.src.tar.zst",
+    "libidn2": "drittanbieter/libidn2-COPYING.LESSERv3.txt, drittanbieter/libidn2-COPYINGv2.txt; Quellcode: " + Q + "mingw-w64-libidn2-2.3.8-5.src.tar.zst",
+    "giflib": "drittanbieter/giflib-COPYING.txt",
+    "libgcc": GCC, "libstdc++": GCC, "libgomp": GCC,
+}
+
+
+def ocr_zuordnung(rel: str, paket: Path) -> tuple[str, str, str] | None:
+    """ocr/-Dateien: Herkunft aus lizenzen/OCR-PAKETE.json (von tools/ocr_bereitstellen.py, MSYS2-Pakete)."""
+    j = paket / "lizenzen" / "OCR-PAKETE.json"
+    if not rel.startswith("ocr/") or not j.exists():
+        return None
+    h = json.loads(j.read_text(encoding="utf-8")).get(rel[4:].lower())
+    if not h:
+        return None
+    kurz = h["paket"].replace("mingw-w64-x86_64-", "")
+    texte = [f"drittanbieter-ocr/{kurz}/"] if (paket / "lizenzen" / "drittanbieter-ocr" / kurz).exists() else []
+    if kurz in OCR_ZUSATZ:
+        texte.append(OCR_ZUSATZ[kurz])
+    lizenz = h["lizenz"].replace("spdx:", "") or "?"
+    return f"{kurz} {h['version']} (MSYS2)", lizenz, ", ".join(texte) or "OFFEN"
+
+
 def dll_liste(paket: Path) -> tuple[str, int]:
     """Alle DLL/PYD/EXE-Binärdateien des Pakets mit Komponente und Lizenz – Grundlage der Lizenzprüfung."""
     zeilen, offen = [], 0
@@ -130,8 +126,8 @@ def dll_liste(paket: Path) -> tuple[str, int]:
         if f.suffix.lower() not in (".dll", ".pyd", ".exe") or f.name == "BnX-Raptor.exe":
             continue
         rel = f.relative_to(paket).as_posix()
-        komp, liz, text = next(((k, li, t) for pre, k, li, t in ZUORDNUNG if rel.lower().startswith(pre.lower())),
-                               ("UNBEKANNT", "?", "OFFEN"))
+        komp, liz, text = ocr_zuordnung(rel, paket) or next(
+            ((k, li, t) for pre, k, li, t in ZUORDNUNG if rel.lower().startswith(pre.lower())), ("UNBEKANNT", "?", "OFFEN"))
         offen += "OFFEN" in text or komp == "UNBEKANNT"
         zeilen.append(f"{rel}\t{f.stat().st_size // 1024} KB\t{komp}\t{liz}\t{text}")
     kopf = ("Binärdateien im Paket (automatisch erzeugt von tools/paket_bauen.py)\n"
@@ -149,7 +145,7 @@ def pruefen(paket: Path) -> list[str]:
     for pflicht in ("BnX-Raptor.exe", "ocr/tesseract.exe", "ocr/tessdata/deu.traineddata",
                     "ocr/tessdata/tur.traineddata", "ocr/tessdata/eng.traineddata", "ocr/tessdata/osd.traineddata",
                     "ocr/tessdata/configs/tsv", "lizenzen/DRITTANBIETER.md", "config.example.json",
-                    "quellcode-drittanbieter/mingw-w64-jbigkit-2.1-5.src.tar.zst",
+                    "quellcode-drittanbieter/mingw-w64-jbigkit-2.1-6.src.tar.zst", "lizenzen/OCR-PAKETE.json",
                     "_internal/pymupdf"):
         if not (paket / pflicht).exists():
             fehler.append(f"fehlt: {pflicht}")
