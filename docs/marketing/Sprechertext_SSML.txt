@@ -1,0 +1,10 @@
+Ein Schriftsatz, viele Anlagen<break time='250ms'/> – und die Reihenfolge muss stimmen.
+<sub alias='B N X Raptor'>BnX-Raptor</sub> wurde für Rechtsanwältinnen, Rechtsanwälte und ihre Kanzleiteams entwickelt.
+Ziehen Sie Word-Dateien, Scans und PDFs in den Anlagen-Assistenten.
+Ordnen und nummerieren Sie Ihre Anlagen,
+machen Sie Scans mit lokaler Texterkennung durchsuchbar
+und schwärzen Sie vertrauliche Stellen dauerhaft.
+<sub alias='B N X Raptor'>BnX-Raptor</sub> erstellt daraus einzelne PDFs und ein bearbeitbares Anlagenverzeichnis in Word.
+Anschließend prüfen Sie die Anhänge im klassischen Outlook-Entwurf.
+<sub alias='B N X Raptor'>BnX-Raptor</sub><break time='200ms'/> – entwickelt für Anwaltskanzleien.
+Jetzt im Pilotbetrieb kennenlernen.

@@ -1,0 +1,40 @@
+1
+00:00:00,300 --> 00:00:04,793
+Ein Schriftsatz, viele Anlagen – und die Reihenfolge muss stimmen.
+
+2
+00:00:04,763 --> 00:00:11,130
+BnX-Raptor wurde für Rechtsanwältinnen, Rechtsanwälte und ihre Kanzleiteams entwickelt.
+
+3
+00:00:11,100 --> 00:00:16,219
+Ziehen Sie Word-Dateien, Scans und PDFs in den Anlagen-Assistenten.
+
+4
+00:00:16,189 --> 00:00:18,844
+Ordnen und nummerieren Sie Ihre Anlagen,
+
+5
+00:00:18,900 --> 00:00:22,460
+machen Sie Scans mit lokaler Texterkennung durchsuchbar
+
+6
+00:00:22,430 --> 00:00:25,377
+und schwärzen Sie vertrauliche Stellen dauerhaft.
+
+7
+00:00:27,400 --> 00:00:34,056
+BnX-Raptor erstellt daraus einzelne PDFs und ein bearbeitbares Anlagenverzeichnis in Word.
+
+8
+00:00:34,026 --> 00:00:37,876
+Anschließend prüfen Sie die Anhänge im klassischen Outlook-Entwurf.
+
+9
+00:00:38,900 --> 00:00:42,525
+BnX-Raptor – entwickelt für Anwaltskanzleien.
+
+10
+00:00:42,495 --> 00:00:44,863
+Jetzt im Pilotbetrieb kennenlernen.
+

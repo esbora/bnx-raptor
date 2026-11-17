@@ -1,0 +1,117 @@
+{
+ "rate": 1.08,
+ "saetze": [
+  [
+   0.3,
+   4.54,
+   "Ein Schriftsatz, viele Anlagen – und die Reihenfolge muss stimmen."
+  ],
+  [
+   4.76,
+   10.88,
+   "BnX-Raptor wurde für Rechtsanwältinnen, Rechtsanwälte und ihre Kanzleiteams entwickelt."
+  ],
+  [
+   11.1,
+   15.97,
+   "Ziehen Sie Word-Dateien, Scans und PDFs in den Anlagen-Assistenten."
+  ],
+  [
+   16.19,
+   18.59,
+   "Ordnen und nummerieren Sie Ihre Anlagen,"
+  ],
+  [
+   18.9,
+   22.21,
+   "machen Sie Scans mit lokaler Texterkennung durchsuchbar"
+  ],
+  [
+   22.43,
+   25.13,
+   "und schwärzen Sie vertrauliche Stellen dauerhaft."
+  ],
+  [
+   27.4,
+   33.81,
+   "BnX-Raptor erstellt daraus einzelne PDFs und ein bearbeitbares Anlagenverzeichnis in Word."
+  ],
+  [
+   34.03,
+   37.63,
+   "Anschließend prüfen Sie die Anhänge im klassischen Outlook-Entwurf."
+  ],
+  [
+   38.9,
+   42.27,
+   "BnX-Raptor – entwickelt für Anwaltskanzleien."
+  ],
+  [
+   42.49,
+   44.61,
+   "Jetzt im Pilotbetrieb kennenlernen."
+  ]
+ ],
+ "szenen": [
+  [
+   "01_start.png",
+   0.0,
+   3.6
+  ],
+  [
+   "02_name.png",
+   3.6,
+   11.1
+  ],
+  [
+   "03_hineinziehen.png",
+   11.1,
+   16.09
+  ],
+  [
+   "04_ordnen.png",
+   16.09,
+   18.9
+  ],
+  [
+   "05_ocr.png",
+   18.9,
+   21.6
+  ],
+  [
+   "06_text.png",
+   21.6,
+   23.6
+  ],
+  [
+   "07_vorgemerkt.png",
+   23.6,
+   25.5
+  ],
+  [
+   "08_geschwaerzt.png",
+   25.5,
+   27.4
+  ],
+  [
+   "09_verzeichnis.png",
+   27.4,
+   30.7
+  ],
+  [
+   "10_pakete.png",
+   30.7,
+   34.03
+  ],
+  [
+   "11_outlook.png",
+   34.03,
+   38.9
+  ],
+  [
+   "12_ende.png",
+   38.9,
+   45.0
+  ]
+ ]
+}

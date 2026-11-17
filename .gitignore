@@ -8,3 +8,6 @@ dist/
 !BnX-Raptor.spec
 config.json
 *.sqlite
+
+# Trailer-Video nicht versionieren (nicht veröffentlichen ohne Freigabe)
+docs/marketing/*.mp4
