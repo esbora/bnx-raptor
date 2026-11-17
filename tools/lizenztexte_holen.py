@@ -19,6 +19,7 @@ from pathlib import Path
 ZIEL = Path(__file__).resolve().parent.parent / "lizenzen" / "drittanbieter"
 GH = "https://raw.githubusercontent.com"
 QUELLEN = [  # (Datei, Komponente, Version, URL)
+    ("lz4-LICENSE.txt", "LZ4 (liblz4, MSYS2-Paket ohne Lizenzdatei)", "1.11.1", f"{GH}/lz4/lz4/v1.11.1/lib/LICENSE"),
     ("giflib-COPYING.txt", "giflib (libgif)", "6.1.3", "https://sourceforge.net/p/giflib/code/ci/6.1.3/tree/COPYING?format=raw"),
     ("libwebp-PATENTS.txt", "libwebp (Patentzusage)", "1.6.0", f"{GH}/webmproject/libwebp/v1.6.0/PATENTS"),
     ("libidn2-COPYING.LESSERv3.txt", "libidn2", "2.3.8", "https://gitlab.com/libidn/libidn2/-/raw/v2.3.8/COPYING.LESSERv3"),

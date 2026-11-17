@@ -99,6 +99,7 @@ OCR_ZUSATZ = {  # MSYS2-Paket → zusätzliche Lizenztexte/Quellcode (neben lize
     "libunistring": "Quellcode: " + Q + "mingw-w64-libunistring-1.4.2-1.src.tar.zst",
     "libidn2": "drittanbieter/libidn2-COPYING.LESSERv3.txt, drittanbieter/libidn2-COPYINGv2.txt; Quellcode: " + Q + "mingw-w64-libidn2-2.3.8-5.src.tar.zst",
     "giflib": "drittanbieter/giflib-COPYING.txt",
+    "lz4": "drittanbieter/lz4-LICENSE.txt",
     "libgcc": GCC, "libstdc++": GCC, "libgomp": GCC,
 }
 
