@@ -41,6 +41,31 @@ SPRACHDATEN = [  # (Datei, URL, SHA-256) – Tag 4.1.0, LSTM "best"-Modelle; osd
     ("osd.traineddata", "https://github.com/tesseract-ocr/tessdata/raw/4.1.0/osd.traineddata",
      "e19f2ae860792fdf372cf48d8ce70ae5da3c4052962fe22e9de1f680c374bb0e"),
 ]
+# Quellcode der (L)GPL-Bibliotheken unter den Tesseract-DLLs. Zuordnung DLL → MSYS2-Paket per SHA-256-Vergleich
+# des Binärpakets (lizenzen/drittanbieter/MSYS2-Zuordnung.json); wird dem Paket beigelegt (GPL-2.0 §3a, LGPL).
+QUELLCODE = [
+    ("mingw-w64-jbigkit-2.1-5.src.tar.zst", "402e264e13ffd10424d3217e83076d9e1e3ab0db16303a33d42a4bd4cda4088b"),
+    ("mingw-w64-libiconv-1.19-1.src.tar.zst", "74428280c17094da5b702c29b2e1a0abae59556ea5dfdd65705cc8ccc1e000fb"),
+    ("mingw-w64-gettext-1.0-1.src.tar.zst", "cca0d0c8f60353faccc5ad40405240014e4a7ccc8b1c6ca9f4626aef3097d26e"),
+    ("mingw-w64-libunistring-1.4.2-1.src.tar.zst", "a5bafb360d5c13c5c52ef071d5a8288ce2345346b902f20ed6e9322766ec60eb"),
+    ("mingw-w64-libidn2-2.3.8-4.src.tar.zst", "cd83e8514fbeb6a4499299b88691b9b9ecc3114cca1e2be4f6c54aab6ae9ddd0"),
+]
+QUELL_ZIEL = BAU / "quellcode"
+QUELL_LIESMICH = r"""Quellcode zu mitgelieferten (L)GPL-Bibliotheken (Ordner ocr\)
+==============================================================
+Die folgenden Dateien sind die unveränderten MSYS2-Quellpakete (Originalquelle + Build-Anleitung PKGBUILD
++ Patches) zu exakt den Binärdateien, die im Ordner ocr\ mitgeliefert werden (Zuordnung per SHA-256 des
+MSYS2-Binärpakets, siehe lizenzen\drittanbieter\MSYS2-Zuordnung.json). Quelle: https://repo.msys2.org/mingw/sources/
+
+  libjbig-0.dll       → mingw-w64-jbigkit-2.1-5          (GPL-2.0-or-later)
+  libiconv-2.dll      → mingw-w64-libiconv-1.19-1        (LGPL-2.1-or-later)
+  libintl-8.dll       → mingw-w64-gettext-1.0-1          (LGPL-2.1-or-later; gettext-runtime)
+  libunistring-5.dll  → mingw-w64-libunistring-1.4.2-1   (LGPL-3.0-or-later ODER GPL-2.0-or-later)
+  libidn2-0.dll       → mingw-w64-libidn2-2.3.8-4        (LGPL-3.0-or-later ODER GPL-2.0-or-later)
+
+Die Archive sind mit Zstandard komprimiert (.tar.zst), z. B. mit 7-Zip zu öffnen.
+"""
+
 LIZENZ_TESSDATA = ("LICENSE_tessdata_best", "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/4.1.0/LICENSE",
                    "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9")
 
@@ -153,6 +178,12 @@ def main() -> None:
     for name, url, sha in SPRACHDATEN:
         holen(name, url, sha, args.cache, ZIEL / "tessdata")
     holen(*LIZENZ_TESSDATA, args.cache, LIZENZ_ZIEL)
+    if QUELL_ZIEL.exists():
+        shutil.rmtree(QUELL_ZIEL)
+    QUELL_ZIEL.mkdir(parents=True)
+    for name, sha in QUELLCODE:
+        holen(name, "https://repo.msys2.org/mingw/sources/" + name, sha, args.cache, QUELL_ZIEL)
+    (QUELL_ZIEL / "LIESMICH.txt").write_text(QUELL_LIESMICH, encoding="utf-8")
     (LIZENZ_ZIEL / "LICENSE_tessdata_best").rename(LIZENZ_ZIEL / "tessdata_best-LICENSE-Apache-2.0.txt")
     groesse = sum(f.stat().st_size for f in ZIEL.rglob("*") if f.is_file())
     print(f"OCR bereit: {ZIEL} – {len(dlls)} DLLs, {groesse / 1e6:.1f} MB, Sprachen deu/tur/eng + osd")

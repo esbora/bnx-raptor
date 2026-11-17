@@ -67,14 +67,14 @@ ZUORDNUNG = [
     ("ocr/libcurl", "curl 8.21.0", "curl", "drittanbieter/curl-COPYING.txt"),
     ("ocr/libdeflate", "libdeflate", "MIT", "drittanbieter/libdeflate-COPYING.txt"),
     ("ocr/libexpat", "Expat 2.8.2", "MIT", "drittanbieter/expat-COPYING.txt"),
-    ("ocr/libgif", "giflib 5.2.2", "MIT", "drittanbieter/giflib-COPYING.txt"),
-    ("ocr/libiconv", "GNU libiconv", "LGPL-2.1-or-later", "drittanbieter/LGPL-2.1.txt"),
+    ("ocr/libgif", "giflib 6.1.3", "MIT", "drittanbieter/giflib-COPYING.txt"),
+    ("ocr/libiconv", "GNU libiconv", "LGPL-2.1-or-later", "drittanbieter/LGPL-2.1.txt + Quellcode: quellcode-drittanbieter/mingw-w64-libiconv-1.19-1.src.tar.zst"),
     ("ocr/libidn2", "libidn2 2.3.8", "LGPL-3.0-or-later ODER GPL-2.0-or-later",
-     "drittanbieter/libidn2-COPYING.LESSERv3.txt, drittanbieter/libidn2-COPYINGv2.txt"),
-    ("ocr/libintl", "GNU gettext (libintl)", "LGPL-2.1-or-later", "drittanbieter/LGPL-2.1.txt"),
+     "drittanbieter/libidn2-COPYING.LESSERv3.txt, drittanbieter/libidn2-COPYINGv2.txt + Quellcode: quellcode-drittanbieter/mingw-w64-libidn2-2.3.8-4.src.tar.zst"),
+    ("ocr/libintl", "GNU gettext (libintl)", "LGPL-2.1-or-later", "drittanbieter/LGPL-2.1.txt + Quellcode: quellcode-drittanbieter/mingw-w64-gettext-1.0-1.src.tar.zst"),
     ("ocr/libjbig", "JBIG-KIT 2.1", "GPL-2.0-or-later",
-     "drittanbieter/JBIG-KIT-COPYING.txt, drittanbieter/JBIG-KIT-jbig.c-Lizenzkopf.txt"),
-    ("ocr/libjpeg", "libjpeg-turbo 3.1.3", "IJG + BSD-3-Clause + zlib",
+     "drittanbieter/JBIG-KIT-COPYING.txt, drittanbieter/JBIG-KIT-jbig.c-Lizenzkopf.txt + Quellcode: quellcode-drittanbieter/mingw-w64-jbigkit-2.1-5.src.tar.zst"),
+    ("ocr/libjpeg", "libjpeg-turbo 3.2.0", "IJG + BSD-3-Clause + zlib",
      "drittanbieter/libjpeg-turbo-LICENSE.md, drittanbieter/libjpeg-turbo-README.ijg.txt"),
     ("ocr/liblerc", "LERC", "Apache-2.0", "drittanbieter/lerc-LICENSE.txt"),
     ("ocr/liblz4", "LZ4 1.10.0", "BSD-2-Clause", "drittanbieter/lz4-LICENSE.txt"),
@@ -86,12 +86,12 @@ ZUORDNUNG = [
     ("ocr/libssh2", "libssh2 1.11.1", "BSD-3-Clause", "drittanbieter/libssh2-COPYING.txt"),
     ("ocr/libtiff", "libtiff 4.7.2", "libtiff", "drittanbieter/libtiff-LICENSE.md"),
     ("ocr/libunistring", "GNU libunistring", "LGPL-3.0-or-later ODER GPL-2.0-or-later",
-     "LGPL-3.0.txt, drittanbieter/GPL-2.0.txt"),
+     "LGPL-3.0.txt, drittanbieter/GPL-2.0.txt + Quellcode: quellcode-drittanbieter/mingw-w64-libunistring-1.4.2-1.src.tar.zst"),
     ("ocr/libwebp", "libwebp 1.6.0", "BSD-3-Clause", "drittanbieter/libwebp-COPYING.txt, drittanbieter/libwebp-PATENTS.txt"),
     ("ocr/libzstd", "Zstandard 1.5.7", "BSD-3-Clause", "drittanbieter/zstd-LICENSE.txt"),
-    ("ocr/zlib1", "zlib 1.3.x", "Zlib", "drittanbieter/zlib-LICENSE.txt"),
+    ("ocr/zlib1", "zlib 1.3.2", "Zlib", "drittanbieter/zlib-LICENSE.txt"),
     ("_internal/pymupdf/", "MuPDF/PyMuPDF (Artifex)", "AGPL-3.0 ODER kommerziell",
-     "PyMuPDF-COPYING-AGPL-3.0.txt (enthaltene Drittbibliotheken von MuPDF: OFFEN)"),
+     "PyMuPDF-COPYING-AGPL-3.0.txt, drittanbieter/mupdf/ (Drittbibliotheken aus offiziellem Quellpaket 1.28.6)"),
     ("_internal/PySide6/opengl32sw", "Mesa llvmpipe (Software-OpenGL von Qt)", "MIT (+ LLVM Apache-2.0)",
      "OFFEN"),
     ("_internal/PySide6/Qt6Pdf", "Qt PDF (enthält PDFium)", "LGPL-3.0 (+ PDFium BSD-3-Clause u. a.)",
@@ -99,16 +99,16 @@ ZUORDNUNG = [
     ("_internal/PySide6/plugins/imageformats/qpdf", "Qt PDF (enthält PDFium)", "LGPL-3.0 (+ PDFium BSD-3-Clause u. a.)",
      "LGPL-3.0.txt (PDFium-Drittanbieter: OFFEN)"),
     ("_internal/PySide6/MSVCP", "Microsoft Visual C++ Runtime", "Microsoft Distributable Code",
-     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code) – juristisch prüfen"),
+     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code); Microsoft: Weitergabe nur für lizenzierte Visual-Studio-Nutzer – OFFEN (juristisch prüfen)"),
     ("_internal/PySide6/VCRUNTIME", "Microsoft Visual C++ Runtime", "Microsoft Distributable Code",
-     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code) – juristisch prüfen"),
+     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code); Microsoft: Weitergabe nur für lizenzierte Visual-Studio-Nutzer – OFFEN (juristisch prüfen)"),
     ("_internal/shiboken6/MSVCP", "Microsoft Visual C++ Runtime", "Microsoft Distributable Code",
-     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code) – juristisch prüfen"),
+     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code); Microsoft: Weitergabe nur für lizenzierte Visual-Studio-Nutzer – OFFEN (juristisch prüfen)"),
     ("_internal/shiboken6/VCRUNTIME", "Microsoft Visual C++ Runtime", "Microsoft Distributable Code",
-     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code) – juristisch prüfen"),
+     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code); Microsoft: Weitergabe nur für lizenzierte Visual-Studio-Nutzer – OFFEN (juristisch prüfen)"),
     ("_internal/VCRUNTIME", "Microsoft Visual C++ Runtime", "Microsoft Distributable Code",
-     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code) – juristisch prüfen"),
-    ("_internal/PySide6/", "Qt 6.12 / PySide6", "LGPL-3.0", "LGPL-3.0.txt, GPL-3.0.txt (Qt-Drittanbieter: OFFEN)"),
+     "Python-LICENSE.txt (Abschnitt Microsoft Distributable Code); Microsoft: Weitergabe nur für lizenzierte Visual-Studio-Nutzer – OFFEN (juristisch prüfen)"),
+    ("_internal/PySide6/", "Qt 6.12 / PySide6", "LGPL-3.0", "LGPL-3.0.txt, GPL-3.0.txt, drittanbieter/qt/ (Qt-Doku 6.12; Qt-Quellcode-Bezug: OFFEN)"),
     ("_internal/shiboken6/", "Shiboken6", "LGPL-3.0", "LGPL-3.0.txt"),
     ("_internal/pywin32_system32/", "pywin32", "PSF-ähnlich", "pywin32-License.txt"),
     ("_internal/win32", "pywin32", "PSF-ähnlich", "pywin32-License.txt"),
@@ -142,12 +142,14 @@ def dll_liste(paket: Path) -> tuple[str, int]:
 def pruefen(paket: Path) -> list[str]:
     fehler = []
     intern = paket / "_internal"
-    for verboten in ("pymupdf/layout", "pymupdf/mupdf-devel", "onnxruntime", "numpy"):
+    for verboten in ("pymupdf/layout", "pymupdf/mupdf-devel", "onnxruntime", "numpy", "PySide6/Qt6Network.dll",
+                     "libcrypto-3-x64.dll", "PySide6/plugins/tls", "PySide6/plugins/generic"):
         if (intern / verboten).exists():
             fehler.append(f"ungenutzte Komponente im Paket: {verboten}")
     for pflicht in ("BnX-Raptor.exe", "ocr/tesseract.exe", "ocr/tessdata/deu.traineddata",
                     "ocr/tessdata/tur.traineddata", "ocr/tessdata/eng.traineddata", "ocr/tessdata/osd.traineddata",
                     "ocr/tessdata/configs/tsv", "lizenzen/DRITTANBIETER.md", "config.example.json",
+                    "quellcode-drittanbieter/mingw-w64-jbigkit-2.1-5.src.tar.zst",
                     "_internal/pymupdf"):
         if not (paket / pflicht).exists():
             fehler.append(f"fehlt: {pflicht}")
@@ -170,6 +172,8 @@ def main() -> None:
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--distpath", str(aus),
                     "--workpath", str(aus / "work"), str(KOK / "BnX-Raptor.spec")], cwd=KOK, check=True)
     shutil.copytree(ocr, paket / "ocr")
+    if (BAU / "quellcode").exists():                    # Quellcode der (L)GPL-DLLs (GPL §3a)
+        shutil.copytree(BAU / "quellcode", paket / "quellcode-drittanbieter")
     fehlend = lizenzen_sammeln(paket / "lizenzen")
     shutil.copy2(KOK / "config.example.json", paket / "config.example.json")
     liste, offen = dll_liste(paket)

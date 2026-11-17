@@ -51,9 +51,6 @@ def logische(paket: Path, version: str) -> list[dict]:
         ("pywin32", "pywin32", "312", "LicenseRef-pywin32", "https://pypi.org/project/pywin32/312/", "", "pkg:pypi/pywin32@312"),
         ("openssl-python", "OpenSSL (Python)", ssl.OPENSSL_VERSION.split()[1], "Apache-2.0", "https://www.openssl.org/",
          "libcrypto-3.dll, libssl-3.dll", None),
-        ("openssl-qt", "OpenSSL (Qt TLS-Backend)", dateiversion(i / "libcrypto-3-x64.dll"), "Apache-2.0",
-         "mit PySide6-Wheel geliefert", "Dateiversion aus Versionsressource; nur Qt-TLS-Backend – BnX-Raptor nutzt für die "
-         "Update-Abfrage Python/urllib (OpenSSL der Python-Laufzeit)", None),
         ("sqlite", "SQLite", sqlite3.sqlite_version, "blessing", "https://www.sqlite.org/", "gemeinfrei", None),
         ("libffi", "libffi", dateiversion(i / "libffi-8.dll"), "MIT", "https://sourceware.org/libffi/", "", None),
         ("msvc", "Microsoft Visual C++ Runtime", dateiversion(i / "VCRUNTIME140.dll"), "LicenseRef-Microsoft-Distributable-Code",
@@ -66,13 +63,17 @@ def logische(paket: Path, version: str) -> list[dict]:
     return [{"ref": r, "name": n, "version": v, "lizenz": li, "quelle": q, "hinweis": h, "purl": pu} for r, n, v, li, q, h, pu in L]
 
 
-TESS_LIBS = {  # Tesseract-Laufzeitbibliotheken: Version laut `tesseract --version` (sonst unbekannt)
-    "libleptonica": "1.87.0", "libgif": "5.2.2", "libjpeg": "3.1.3 (libjpeg-turbo)", "libpng16": "1.6.58", "libtiff": "4.7.2",
-    "zlib1": "1.3.x", "libwebp": "1.6.0", "libwebpmux": "1.6.0", "libsharpyuv": "1.6.0", "libopenjp2": "2.5.4",
-    "libarchive": "3.8.8", "liblzma": "5.8.3", "libbz2": "1.0.8", "liblz4": "1.10.0", "libzstd": "1.5.7", "libexpat": "2.8.2",
-    "libcurl": "8.21.0", "libbrotlicommon": "1.2.0", "libbrotlidec": "1.2.0", "libidn2": "2.3.8", "libpsl": "0.21.5",
-    "libssh2": "1.11.1", "libtesseract": "5.5.3",
+MSYS2 = json.loads((KOK / "lizenzen" / "drittanbieter" / "MSYS2-Zuordnung.json").read_text(encoding="utf-8"))
+EIGEN = {  # nicht aus MSYS2 (Build des Tesseract-Herstellers); Version laut `tesseract --version`
+    "tesseract.exe": "5.5.3", "libtesseract-5.dll": "5.5.3", "libcurl-4.dll": "8.21.0 (Schannel)", "libssh2-1.dll": "1.11.1",
 }
+
+
+def ocr_version(name: str) -> tuple[str, str]:
+    n = name.lower()
+    if n in MSYS2:
+        return MSYS2[n]["version"], MSYS2[n]["paket"]
+    return EIGEN.get(n, "unbekannt"), ""
 
 
 def zuordnen(rel: str) -> tuple[str, str]:
@@ -137,9 +138,8 @@ def main() -> None:
             continue
         rel = f.relative_to(a.paket).as_posix()
         log_ref, detail = zuordnen(rel)
-        stamm = Path(rel).stem.rsplit("-", 1)[0]
-        ver = TESS_LIBS.get(stamm, TESS_LIBS.get(Path(rel).stem, "")) if rel.startswith("ocr/") else ""
-        if rel.startswith("ocr/") and rel.lower().endswith(".dll") and not ver:
+        ver, msys = ocr_version(f.name) if rel.startswith("ocr/") and f.suffix.lower() in (".dll", ".exe") else ("", "")
+        if rel.startswith("ocr/") and f.suffix.lower() in (".dll", ".exe") and ver == "unbekannt":
             unbekannt.append(Path(rel).name)
         ref = "datei:" + rel
         exe = f.suffix.lower() in (".exe", ".dll", ".pyd")
@@ -150,7 +150,9 @@ def main() -> None:
                                      {"name": "bsi:component:executable", "value": "executable" if exe else "non-executable"},
                                      {"name": "bsi:component:archive", "value": "archive" if archiv else "no archive"},
                                      {"name": "bsi:component:structured", "value": "structured" if archiv else "unstructured"}]
-                      + ([{"name": "bnx:komponente", "value": detail}] if detail else [])})
+                      + ([{"name": "bnx:komponente", "value": detail}] if detail else [])
+                      + ([{"name": "bnx:msys2-paket", "value": f"{msys} {ver} (SHA-256-identisch mit MSYS2-Binärpaket)"}]
+                         if msys else [])})
         deps[log_ref].append(ref)
         dateien += 1
     zip_sha512 = hashlib.sha512(a.zip.read_bytes()).hexdigest()
@@ -176,9 +178,9 @@ def main() -> None:
             "luecken": [
                 "Herstellerangaben (SBOM-Ersteller/Kontakt) fehlen – Pflichtfeld nach TR-03183-2.",
                 "Projektlizenz BnX-Raptor nicht festgelegt (NOASSERTION).",
-                "Qt-interne Drittbibliotheken (z. B. PCRE2, HarfBuzz, libpng, zlib, libjpeg-turbo, libtiff, libwebp in Plug-ins) nicht einzeln mit Version/Lizenztext erfasst.",
-                "In MuPDF eingebaute Drittbibliotheken nur teilweise erkennbar (Little CMS, OpenJPEG, Brotli, extract); Versionen und Lizenztexte offen.",
-                "Tesseract-DLLs ohne Versionsangabe in `tesseract --version`: " + (", ".join(unbekannt) or "keine") + ".",
+                "Qt-interne Drittbibliotheken: Hinweise laut Qt-6.12-Dokumentation beigelegt (lizenzen/drittanbieter/qt), nicht einzeln als SBOM-Komponente mit Version erfasst.",
+                "In MuPDF eingebaute Drittbibliotheken: Lizenztexte aus offiziellem Quellpaket 1.28.6 beigelegt; Versionen nicht einzeln erfasst.",
+                "Tesseract-Dateien ohne exakte Version (nicht MSYS2-identisch, nicht in `tesseract --version`): " + (", ".join(unbekannt) or "keine") + ".",
                 "Microsoft-VC++-Laufzeit: Weitergabebedingungen nicht juristisch geprüft.",
                 "Lizenztext-Lücken für Weitergabe: siehe lizenzen/DLL-LISTE.txt (Einträge mit OFFEN).",
             ]}
