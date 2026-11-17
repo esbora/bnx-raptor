@@ -115,15 +115,7 @@ QToolButton:checked {{ background: {f['pfirsich']}; color: {f['pfirsich_text']};
 QToolButton:focus {{ border: 2px solid {f['primaer']}; }}
 QToolButton[gruppe="haupt"] {{ font-weight: 600; min-width: 74px; }}
 QCheckBox {{ spacing: 8px; }}
-QSpinBox, QDoubleSpinBox {{ padding-right: 22px; }}
-QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
-    subcontrol-origin: border; width: 20px; border: none; background: transparent; }}
-QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-position: top right; }}
-QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-position: bottom right; }}
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ width: 0; height: 0; border-left: 4px solid transparent;
-    border-right: 4px solid transparent; border-bottom: 5px solid {f['gedimmt']}; }}
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ width: 0; height: 0; border-left: 4px solid transparent;
-    border-right: 4px solid transparent; border-top: 5px solid {f['gedimmt']}; }}
+QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 18px; }}
 QToolButton::menu-button {{ border: none; width: 14px; }}
 QSplitter::handle {{ background: {f['grund']}; }}
 QScrollArea {{ border: none; background: {f['grund']}; }}
