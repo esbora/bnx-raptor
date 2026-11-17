@@ -11,7 +11,7 @@ QUELLE = Path(__file__).resolve().parent
 import tempfile  # noqa: E402
 HIER = Path(tempfile.gettempdir()) / "bnx_trailer"
 HIER.mkdir(exist_ok=True)
-FOTO = Path(r"C:\BnX-Test\handbuch\fotos")
+FOTO = QUELLE.parent / "handbuch" / "bilder"
 ZIEL = QUELLE / "BnX-Raptor_Trailer_DE_45s.mp4"
 B, H, FPS, LAENGE = 1920, 1080, 30, 45.0
 app = QGuiApplication(sys.argv)
