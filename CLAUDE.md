@@ -146,6 +146,11 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   çalıştırılmadı (ilk koşuda doğrulanmalı). Word eki dahil kabul testi dev + EXE geçti. Lisans listesi:
   `lizenzen/DRITTANBIETER.md` (eksik metinler işaretli).
 - [ ] **Bekliyor:** Proje lisansı kararı, eksik üçüncü taraf lisans metinleri, ardından ilk GitHub derlemesi.
+- [x] CRA hazırlığı (yerel, 2026-11-17): `docs/CRA/` 00–06 (Almanca PDF, `docs/CRA/erzeugen.py` ile üretilir),
+  CycloneDX 1.6 SBOM (`tools/sbom_erzeugen.py`, şema doğrulandı), kanıtlar `docs/CRA/nachweise/`.
+  Teslim ZIP'i: `tools/uebergabe_bauen.py` → `BnX-Raptor-0.4.0-Pilot-win64-<commit>.zip` (+ .sha256), yeni klasöre
+  açılıp test edildi. Hukuki değerlendirme taslaktır; üretici bilgileri, iletişim noktası, destek süresi OFFEN.
+- [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
 
 ## 9. Yol haritası (her madde ayrı onayla yapılır)
