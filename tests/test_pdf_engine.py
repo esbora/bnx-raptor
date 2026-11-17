@@ -146,6 +146,16 @@ def test_kaputte_datei_klare_meldung(tmp_path):
         pe.oeffnen(f)
 
 
+def test_falsche_seitenzahl_klare_meldung(tmp_path):
+    # Fund aus dem Test mit beschädigten PDFs (0.4.0): /Count im Seitenbaum gefälscht → RuntimeError in page_count
+    d = pymupdf.open()
+    d.new_page().insert_text((72, 72), "Testseite")
+    f = tmp_path / "seiten.pdf"
+    f.write_bytes(d.tobytes().replace(b"/Count 1", b"/Count 999999999"))
+    with pytest.raises(pe.PdfFehler, match="Seitenverzeichnis"):
+        pe.oeffnen(f)
+
+
 def test_text_nicht_gefunden(tmp_path):
     doc = pymupdf.open(_brief(tmp_path))
     with pytest.raises(pe.PdfFehler):

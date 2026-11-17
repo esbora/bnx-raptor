@@ -64,7 +64,11 @@ def oeffnen(pfad: Path | None = None, daten: bytes | None = None) -> pymupdf.Doc
         raise PdfFehler(f"{name}: Datei ist beschädigt oder kein PDF und kann nicht geöffnet werden.") from e
     if doc.needs_pass:
         raise PdfFehler(f"{name}: Datei ist kennwortgeschützt.")
-    if doc.page_count == 0:
+    try:                                   # z. B. falsche /Count-Angabe im Seitenbaum
+        seiten = doc.page_count
+    except Exception as e:  # noqa: BLE001
+        raise PdfFehler(f"{name}: Datei ist beschädigt (Seitenverzeichnis fehlerhaft).") from e
+    if seiten == 0:
         raise PdfFehler(f"{name}: Datei enthält keine Seiten (beschädigt?).")
     try:                                   # Seiteninhalte tatsächlich lesbar? (kaputte Streams)
         for p in doc:
