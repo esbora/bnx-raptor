@@ -21,6 +21,11 @@ Sürüm numarası **MAJOR.MINOR.PATCH** biçimindedir (ör. `0.3.1`):
    `.exe` dosyasını oluşturur, `v0.3.0` etiketini koyar ve **Releases** sayfasına
    `BnX-Raptor-v0.3.0.zip` dosyasını yükler (5–10 dakika). Durum: GitHub → **Actions** sekmesi.
 
+0.4.0'dan itibaren paket, yerelde (`build.bat`) ve GitHub'da aynı adımlarla oluşur:
+`tools/ocr_bereitstellen.py` (OCR bileşeni, SHA-256 kontrollü indirme) → `tools/paket_bauen.py`
+(`BnX-Raptor.spec`, `ocr\`, `lizenzen\`, içerik kontrolü, ZIP). Yayından önce `lizenzen/DRITTANBIETER.md`
+içindeki açık maddeler tamamlanmalı ve proje lisansı belirlenmiş olmalı.
+
 Aynı sürüm numarası daha önce yayınlandıysa hiçbir şey yapılmaz. Elle başlatmak için:
 Actions → Release → **Run workflow**.
 

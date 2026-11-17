@@ -85,7 +85,7 @@ class KontrollDialog(QDialog):
                            "Word → PDF" if schriftsatz.art == "word" else str(schriftsatz.seiten), schriftsatz))
         for e, b in zip(anlagen, bez):
             zeilen.append((b, e.titel, e.quelle.name, an.dateiname(b),
-                           "Word → PDF" if e.art == "word" else str(e.seiten) if e.ok else "–", e))
+                           "Word → PDF" if e.art == "word" and e.daten is None else str(e.seiten) if e.ok else "–", e))
         zeilen.append(("", "Anlagenverzeichnis (Word, bearbeitbar)", "", an.VERZEICHNIS, "", None))
         if gesamt:
             zeilen.append(("", "Gesamt-PDF nur zur internen Prüfung", "", an.GESAMT, "", None))
@@ -252,6 +252,18 @@ class AnlagenTab(QWidget):
         self._ungueltig()
 
     # ------------------------------------------------------------- Daten
+    BITTE_WARTEN = " – bitte warten …"
+
+    def setEnabled(self, an_: bool):
+        """Sperren während längerer Arbeit (Word, OCR, Paket) – mit Hinweis im Fenstertitel.
+        Gezählt, damit verschachtelte Abschnitte die Sperre nicht zu früh aufheben."""
+        self._sperren = max(getattr(self, "_sperren", 0) + (-1 if an_ else 1), 0)
+        super().setEnabled(self._sperren == 0)
+        w = self.window()
+        if w is not self:
+            titel = w.windowTitle().replace(self.BITTE_WARTEN, "")
+            w.setWindowTitle(titel if self._sperren == 0 else titel + self.BITTE_WARTEN)
+
     def anlagen(self) -> list[an.Eintrag]:
         return [self.eintraege[self.liste.topLevelItem(i).data(0, Qt.UserRole)]
                 for i in range(self.liste.topLevelItemCount())]
@@ -278,6 +290,13 @@ class AnlagenTab(QWidget):
         if not pfade:
             return
         self.schritte += 1
+        self.setEnabled(False)
+        try:
+            self._hinzufuegen(pfade)
+        finally:
+            self.setEnabled(True)
+
+    def _hinzufuegen(self, pfade: list[Path]):
         neu = []
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -290,12 +309,13 @@ class AnlagenTab(QWidget):
         finally:
             QGuiApplication.restoreOverrideCursor()
         if self.schriftsatz_id is None:
-            word = next((e for e in neu if e.art == "word"), None)
+            word = an.schriftsatz_vorschlag(neu)
             if word:
                 self._schriftsatz_setzen(word)
                 neu.remove(word)
         for e in neu:
             self.liste.addTopLevelItem(self._item(e))
+        self._word_umwandeln(neu)
         self._ausrichtung_erkennen([e for e in neu if e.scan_seiten])
         self._geaendert()
         if self.liste.topLevelItemCount() and not self.liste.currentItem():
@@ -306,6 +326,33 @@ class AnlagenTab(QWidget):
         it.setData(0, Qt.UserRole, e.id)
         it.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
         return it
+
+    def _word_zu_pdf(self, quelle: Path, ziel: Path):
+        """Word → PDF mit dem vorhandenen Ablauf (unsichtbares Word, Zeitlimit, PDF/A-Einstellung)."""
+        from core.word_service import WordService
+        zeit = float(self.cfg.get("word_zeitlimit_sekunden", 90))
+
+        def lauf():
+            with WordService(zeit) as w:
+                w.export_pdf(quelle, ziel, pdfa=self.cfg.get("pdfa", True))
+        if self.hintergrund:
+            self.hintergrund(lauf, zeit + 30)
+        else:
+            lauf()
+
+    def _word_umwandeln(self, eintraege: list[an.Eintrag]):
+        """Word-Anlagen gleich beim Hinzufügen umwandeln → Vorschau, Seitenzahl und Prüfungen wie bei PDFs."""
+        word = [e for e in eintraege if e.art == "word" and e.daten is None and e.id != self.schriftsatz_id]
+        if not word:
+            return
+        self.setEnabled(False)
+        try:
+            for i, e in enumerate(word, 1):
+                self.status.setText(f"Word → PDF: {e.quelle.name} ({i}/{len(word)}) …")
+                QGuiApplication.processEvents()
+                an.word_umwandeln(e, self._word_zu_pdf)
+        finally:
+            self.setEnabled(True)
 
     def _ausrichtung_erkennen(self, eintraege: list[an.Eintrag]):
         if not eintraege or not pe.tesseract_ordner():
@@ -338,6 +385,8 @@ class AnlagenTab(QWidget):
             self.liste.insertTopLevelItem(0, self._item(alt))
         self.ordner.clear()
         self._schriftsatz_setzen(e)
+        if alt:
+            self._word_umwandeln([alt])          # bisheriger Word-Schriftsatz wird jetzt Anlage
         self._geaendert()
 
     def leeren(self):
@@ -401,7 +450,7 @@ class AnlagenTab(QWidget):
             e = self.eintraege[it.data(0, Qt.UserRole)]
             it.setText(0, b)
             it.setText(1, e.titel)
-            it.setText(3, "Word" if e.art == "word" else (str(e.seiten) if e.ok else "–"))
+            it.setText(3, "Word" if e.art == "word" and e.daten is None else (str(e.seiten) if e.ok else "–"))
             eigene = [h for h in hinweise if e.id in h.ids]
             fehler = next((h for h in eigene if h.stufe == "fehler"), None)
             text = ("✖ " + e.fehler) if fehler else ("⚠ " + ", ".join(sorted({
@@ -545,17 +594,7 @@ class AnlagenTab(QWidget):
             QMessageBox.warning(self, "Nicht gespeichert", f"{s.quelle.name} ist in Word geöffnet und nicht "
                                                           "gespeichert. Bitte zuerst speichern.")
             return
-        zeit = float(self.cfg.get("word_zeitlimit_sekunden", 90))
-
-        def word_zu_pdf(quelle: Path, ziel: Path):
-            def lauf():
-                with WordService(zeit) as w:
-                    w.export_pdf(quelle, ziel, pdfa=self.cfg.get("pdfa", True))
-            if self.hintergrund:
-                self.hintergrund(lauf, zeit + 30)
-            else:
-                lauf()
-
+        word_zu_pdf = self._word_zu_pdf
         umbenennen = False
         while True:
             self.setEnabled(False)

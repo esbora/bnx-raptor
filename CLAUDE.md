@@ -139,8 +139,13 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   taranmış kelime düzeltme, kalıcı karartma + kayıt sonrası doğrulama, geri al, „Speichern unter…“) ve
   Anlagen-Assistent (tek ekran, Anlage K1…, Anlagenverzeichnis.docx, Outlook ek doğrulaması). Hayali dilekçe + 10 ekle
   uçtan uca kabul testi normal uygulamada ve paketli EXE'de geçti. Eğiklik düzeltme (deskew) YOK.
-- [ ] **Bekliyor:** `release.yml` 0.4 paketine uyarlanmadı (ocr\ klasörü, PyMuPDF ek paketlerinin hariç tutulması,
-  lisans metinleri) – lisans/dağıtım kararından sonra. Şu an `main`'e birleştirme bozuk/eksik bir EXE üretir.
+- [x] 0.4.0 paketleme (yerel, 2026-11-17): TEK ayar `BnX-Raptor.spec` + `tools/ocr_bereitstellen.py` (Tesseract 5.5.3 +
+  tessdata 4.1.0 deu/tur/eng/osd, SHA-256 sabit) + `tools/paket_bauen.py` (ocr\, lizenzen\, içerik kontrolü, ZIP).
+  `build.bat` ve `release.yml` aynı betikleri çağırır (release.yml yalnızca yerelde değişti, push yok). Yerelde
+  Tesseract kurulumu UAC ister → `--tesseract-ordner` ile mevcut 5.5.3 kurulumu; GitHub'da kurulum adımı henüz HİÇ
+  çalıştırılmadı (ilk koşuda doğrulanmalı). Word eki dahil kabul testi dev + EXE geçti. Lisans listesi:
+  `lizenzen/DRITTANBIETER.md` (eksik metinler işaretli).
+- [ ] **Bekliyor:** Proje lisansı kararı, eksik üçüncü taraf lisans metinleri, ardından ilk GitHub derlemesi.
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
 
 ## 9. Yol haritası (her madde ayrı onayla yapılır)

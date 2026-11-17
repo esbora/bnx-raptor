@@ -140,3 +140,39 @@ def test_anhaenge_vergleich_und_eml(tmp_path):
     assert anhaenge_vergleichen(eml_anhaenge(eml), [a, b]) == []
     assert anhaenge_vergleichen(eml_anhaenge(eml), [b, a])          # falsche Reihenfolge erkannt
     assert email.message_from_bytes(eml.read_bytes())["X-Unsent"] == "1"
+
+
+def test_word_anlage_wird_sofort_umgewandelt(dateien, tmp_path):
+    s, a, dup, kaputt = dateien
+    klage = tmp_path / "Klageschrift_Muster.docx"
+    vollmacht = tmp_path / "Vollmacht.docx"
+    for f in (klage, vollmacht):
+        f.write_bytes(b"PK fake docx " + f.name.encode())
+    aufrufe = []
+
+    def word(q, z):
+        aufrufe.append(q.name)
+        _pdf(z, f"Word {q.stem}", 2)
+    eintraege = [an.einlesen(vollmacht), an.einlesen(klage)]
+    assert an.schriftsatz_vorschlag(eintraege).quelle == klage        # Name entscheidet, nicht Reihenfolge
+    v = eintraege[0]
+    assert an.word_umwandeln(v, word) and v.seiten == 2 and v.daten
+    assert "Word Vollmacht" in v.dokument()[0].get_text()
+    paket = an.paket_erstellen(tmp_path / "aus", eintraege[1], [an.einlesen(a[0]), v],
+                               ["Anlage K1", "Anlage K2"], word)
+    assert aufrufe == ["Vollmacht.docx", "Klageschrift_Muster.docx"]     # Anlage nicht doppelt umgewandelt
+    k2 = [d for d in paket.dateien if d.bezeichnung == "Anlage K2"][0]
+    assert k2.pfad.name == "Anlage_K2.pdf" and k2.seiten == 2
+    assert docx_tabelle_lesen(paket.ordner / "Anlagenverzeichnis.docx")[2] == ["Anlage K2", "Vollmacht", "2"]
+
+
+def test_word_umwandlung_fehler_blockiert(tmp_path):
+    f = tmp_path / "Vollmacht.docx"
+    f.write_bytes(b"PK")
+    e = an.einlesen(f)
+
+    def kaputt(q, z):
+        raise RuntimeError("Word konnte nicht gestartet werden")
+    assert not an.word_umwandeln(e, kaputt)
+    assert "Word-Umwandlung fehlgeschlagen" in e.fehler
+    assert an.blockiert(an.pruefen(None, [e]))

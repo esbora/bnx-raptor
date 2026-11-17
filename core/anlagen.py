@@ -215,6 +215,36 @@ def ocr_ausfuehren(e: Eintrag, erkenner: Callable[[bytes, int], list[tuple]], dp
     return fertig
 
 
+def word_umwandeln(e: Eintrag, word_zu_pdf: Callable[[Path, Path], None]) -> bool:
+    """Word-Anlage sofort in PDF umwandeln (für Vorschau, Seitenzahl, Doppelt-Prüfung).
+    Fehler werden am Eintrag gemeldet (Datei bleibt in der Liste, Paket ist dann blockiert)."""
+    if e.art != "word" or e.daten is not None or e.fehler:
+        return False
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="bnx-word-") as td:
+        ziel = Path(td) / (e.quelle.stem + ".pdf")
+        try:
+            word_zu_pdf(e.quelle, ziel)
+            doc = pe.oeffnen(ziel, ziel.read_bytes())
+        except Exception as ex:  # noqa: BLE001
+            e.fehler = f"Word-Umwandlung fehlgeschlagen: {str(ex).splitlines()[0][:160]}"
+            return False
+        e.daten = doc.tobytes(garbage=3, deflate=True)
+        _analysieren(e, doc)
+        doc.close()
+    return True
+
+
+SCHRIFTSATZ_WOERTER = re.compile(r"klage|schriftsatz|antrag|erwiderung|berufung|replik|duplik|beschwerde|"
+                                 r"einspruch|widerspruch|stellungnahme", re.I)
+
+
+def schriftsatz_vorschlag(eintraege: list[Eintrag]) -> Eintrag | None:
+    """Welche Word-Datei ist der Schriftsatz? Name mit „Klage/Schriftsatz/Antrag…“ zuerst, sonst die erste."""
+    word = [e for e in eintraege if e.art == "word"]
+    return next((e for e in word if SCHRIFTSATZ_WOERTER.search(e.quelle.stem)), word[0] if word else None)
+
+
 def bezeichnungen(anzahl: int, praefix: str = "Anlage K", start: int = 1) -> list[str]:
     return [f"{praefix}{start + i}" for i in range(anzahl)]
 
@@ -344,8 +374,8 @@ def paket_erstellen(ordner: Path, schriftsatz: Eintrag, anlagen: list[Eintrag], 
         dateien: list[Paketdatei] = []
         fortschritt("Schriftsatz wird in PDF umgewandelt …")
         s_tmp = tmp / namen[0]
-        if schriftsatz.art == "word":
-            word_zu_pdf(schriftsatz.quelle, s_tmp)
+        if schriftsatz.art == "word" and not schriftsatz.bearbeitet:
+            word_zu_pdf(schriftsatz.quelle, s_tmp)          # frisch aus Word → PDF/A bleibt erhalten
         else:
             s_tmp.write_bytes(schriftsatz.daten)
         dateien.append(Paketdatei("schriftsatz", "Schriftsatz", schriftsatz.titel, s_tmp,
@@ -353,9 +383,9 @@ def paket_erstellen(ordner: Path, schriftsatz: Eintrag, anlagen: list[Eintrag], 
         for i, (e, b) in enumerate(zip(anlagen, bez)):
             fortschritt(f"{b} wird geschrieben ({i + 1}/{len(anlagen)}) …")
             t = tmp / namen[1 + i]
-            if e.art == "word":
+            if e.art == "word" and e.daten is None:
                 word_zu_pdf(e.quelle, t)
-            else:
+            else:                                            # auch Word-Anlagen: bereits umgewandelt (Vorschau)
                 with pymupdf.open("pdf", e.daten) as d:
                     d.save(t, garbage=4, deflate=True)
             dateien.append(Paketdatei("anlage", b, e.titel, t, _pruefen_und_zaehlen(t), ""))

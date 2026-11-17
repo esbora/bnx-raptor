@@ -1,6 +1,7 @@
 @echo off
-REM BnX-Raptor: yerel bilgisayarda .exe oluşturur (test için).
-REM Resmi sürümler GitHub'da otomatik oluşturulur – bkz. RELEASE.md
+REM BnX-Raptor: yerel bilgisayarda paket oluşturur (test için).
+REM GitHub (release.yml) AYNI adımları kullanır: tools\ocr_bereitstellen.py + tools\paket_bauen.py + BnX-Raptor.spec
+REM Çıktı klasörü: BNX_AUSGABE ortam değişkeni (yoksa .\dist). OneDrive içindeyseniz dışarıda bir klasör seçin.
 cd /d "%~dp0"
 
 if not exist .venv (
@@ -11,11 +12,12 @@ pip install -r requirements.txt
 
 python -m pytest -q tests || (echo TESTLER BASARISIZ & pause & exit /b 1)
 
-pyinstaller --noconfirm --windowed --name BnX-Raptor ^
-    --hidden-import win32com.client --hidden-import pythoncom ^
-    main.py
+REM OCR (Tesseract + deu/tur/eng): indirir, SHA-256 ile doğrular -> build\ocr
+python tools\ocr_bereitstellen.py || (echo OCR HAZIRLANAMADI & pause & exit /b 1)
 
-copy /Y config.example.json dist\BnX-Raptor\config.example.json
+if "%BNX_AUSGABE%"=="" set BNX_AUSGABE=dist
+python tools\paket_bauen.py --ausgabe "%BNX_AUSGABE%" || (echo PAKET HATASI & pause & exit /b 1)
+
 echo.
-echo Hazir: dist\BnX-Raptor\BnX-Raptor.exe
+echo Hazir: %BNX_AUSGABE%\BnX-Raptor\BnX-Raptor.exe
 pause
