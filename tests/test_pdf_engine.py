@@ -150,3 +150,15 @@ def test_text_nicht_gefunden(tmp_path):
     doc = pymupdf.open(_brief(tmp_path))
     with pytest.raises(pe.PdfFehler):
         pe.text_ersetzen(doc[0], "gibt es nicht", "x")
+
+
+def test_ohne_windows_schriften(monkeypatch):
+    # Programm darf nicht von installierten Windows-Schriften abhängen
+    monkeypatch.setattr(pe, "systemschrift", lambda name: None)
+    doc = pymupdf.open()
+    p = doc.new_page()
+    p.insert_text((72, 100), "Alter Absatz", fontname="helv", fontsize=11)
+    erg = pe.block_ersetzen(p, pe.block_an(p, (75, 97)), "Çağrı für Müller – İstanbul")
+    assert "Çağrı für Müller – İstanbul" in p.get_text() and "Ersatz" in erg.schrift
+    pe.text_einfuegen(p, (72, 300), "Ğüşö")
+    assert "Ğüşö" in p.get_text()

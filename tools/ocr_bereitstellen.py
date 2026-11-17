@@ -4,9 +4,10 @@ Yerel derleme ve GitHub Actions AYNI betiği kullanır. Her indirme sabit bir SH
 uyuşmazsa derleme durur. Programın kendisi çalışırken internete bağlanmaz – bu yalnızca derleme adımıdır.
 
 Kullanım:  python tools/ocr_bereitstellen.py [--cache KLASÖR] [--tesseract-ordner KLASÖR]
+  Standard: resmî kurulum dosyası indirilir ve 7-Zip ile yalnızca AÇILIR (kurulmaz) → yönetici onayı (UAC),
+    kayıt defteri veya PATH değişikliği yok. 7-Zip GitHub Windows sunucularında hazır bulunur.
   --cache: önceden indirilmiş dosyaların klasörü (aynı adlarla); yoksa indirilir.
-  --tesseract-ordner: aynı resmî kurulumla (5.5.3) önceden kurulmuş klasör. Kurulum programı yönetici
-    onayı (UAC) ister; GitHub'da sorun değil, yerelde bu seçenekle onay penceresi gerekmez.
+  --tesseract-ordner: aynı resmî 5.5.3 sürümünün mevcut bir klasörü (7-Zip olmayan bilgisayarlar için).
 """
 from __future__ import annotations
 
@@ -97,14 +98,25 @@ def benoetigte_dlls(ordner: Path) -> list[str]:
     return sorted(vorhanden[d].name for d in noetig)
 
 
-def _installieren(setup: Path, inst: Path) -> Path:
-    print("  installiere Tesseract still in einen temporären Ordner …")
-    # Setup verlangt erhöhte Rechte (Manifest) → über die Windows-Shell starten, nicht per CreateProcess
-    subprocess.run(["powershell", "-NoProfile", "-Command",
-                    f"Start-Process -FilePath '{setup}' -ArgumentList '/S','/D={inst}' -Wait"],
-                   timeout=600, check=True)
-    if not (inst / "tesseract.exe").exists():
-        raise SystemExit("Tesseract-Installation fehlgeschlagen")
+def _sieben_zip() -> str:
+    for kandidat in (shutil.which("7z"), r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"):
+        if kandidat and Path(kandidat).exists():
+            return kandidat
+    raise SystemExit("7-Zip (7z.exe) nicht gefunden – oder --tesseract-ordner angeben")
+
+
+def _entpacken(setup: Path, ziel: Path) -> Path:
+    """NSIS-Setup nur entpacken (nicht ausführen): keine Rechte, keine Registry, kein PATH."""
+    print("  entpacke Tesseract-Setup mit 7-Zip (keine Installation) …")
+    subprocess.run([_sieben_zip(), "x", "-y", f"-o{ziel}", str(setup)], check=True,
+                   stdout=subprocess.DEVNULL, timeout=600)
+    exe = next(ziel.rglob("tesseract.exe"), None)
+    if not exe:
+        raise SystemExit("tesseract.exe nicht im entpackten Setup gefunden")
+    inst = exe.parent
+    for pflicht in ("tessdata/configs/tsv", "doc/LICENSE"):
+        if not (inst / pflicht).exists():
+            raise SystemExit(f"entpacktes Setup unvollständig: {pflicht} fehlt neben tesseract.exe")
     return inst
 
 
@@ -128,7 +140,7 @@ def main() -> None:
                 raise SystemExit(f"{inst}: keine Tesseract-5.5.3-Installation ({v.splitlines()[:1]})")
             print(f"  verwende vorhandene Installation {inst} ({v.splitlines()[0]})")
         else:
-            inst = _installieren(holen(*TESSERACT, args.cache, td), td / "tesseract")
+            inst = _entpacken(holen(*TESSERACT, args.cache, td), td / "tesseract")
         dlls = benoetigte_dlls(inst)
         shutil.copy2(inst / "tesseract.exe", ZIEL)
         for d in dlls:
@@ -138,10 +150,6 @@ def main() -> None:
         (LIZENZ_ZIEL / "Tesseract-DLLs.txt").write_text(
             "Mitgelieferte Laufzeitbibliotheken von Tesseract 5.5.3 (UB-Mannheim-Build):\n"
             + "\n".join(dlls) + "\n", encoding="utf-8")
-        deinst = inst / "tesseract-uninstall.exe"
-        if not args.tesseract_ordner and deinst.exists():     # temporäre Installation wieder austragen
-            subprocess.run(["powershell", "-NoProfile", "-Command",
-                            f"Start-Process -FilePath '{deinst}' -ArgumentList '/S' -Wait"], timeout=300)
     for name, url, sha in SPRACHDATEN:
         holen(name, url, sha, args.cache, ZIEL / "tessdata")
     holen(*LIZENZ_TESSDATA, args.cache, LIZENZ_ZIEL)

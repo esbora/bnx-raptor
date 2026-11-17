@@ -13,7 +13,6 @@ import hashlib
 import os
 import re
 import subprocess
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -261,9 +260,18 @@ def schrift_waehlen(doc: pymupdf.Document, xref: int, name: str, text: str) -> S
     if datei:
         puffer = datei.read_bytes()
         return Schriftwahl(pymupdf.Font(fontbuffer=puffer), puffer, "Windows", name, fehlt)
-    datei = systemschrift(ERSATZ_SCHRIFT)
-    puffer = datei.read_bytes()
-    return Schriftwahl(pymupdf.Font(fontbuffer=puffer), puffer, "Ersatz", ERSATZ_SCHRIFT, fehlt)
+    f = schrift_laden()
+    return Schriftwahl(f, f.buffer, "Ersatz", f.name, fehlt)
+
+
+def schrift_laden(name: str | None = None) -> pymupdf.Font:
+    """Windows-Schrift `name` → Arial → in PyMuPDF eingebaute Helvetica (enthält ä ö ü ß ç ğ ı ş İ €).
+    So funktioniert das Programm auch, wenn eine Windows-Schrift fehlt."""
+    for n in ([name] if name else []) + [ERSATZ_SCHRIFT]:
+        datei = systemschrift(n)
+        if datei:
+            return pymupdf.Font(fontfile=str(datei))
+    return pymupdf.Font("helv")
 
 
 def _rgb(farbe: int) -> tuple[float, float, float]:
@@ -445,8 +453,7 @@ def text_ersetzen(page, alt: str, neu: str) -> Aenderung:
 def text_einfuegen(page, punkt, text: str, groesse: float = 11, farbe=(0, 0, 0),
                    schrift: str = ERSATZ_SCHRIFT, ausrichtung: str = "links") -> Aenderung:
     """Neuen Text ab `punkt` (linke obere Ecke) einfügen; Umbruch bis zum rechten Rand."""
-    datei = systemschrift(schrift) or systemschrift(ERSATZ_SCHRIFT)
-    font = pymupdf.Font(fontfile=str(datei))
+    font = schrift_laden(schrift)
     x, y0 = punkt
     breite = page.rect.width - 56 - x
     if breite < 40:
@@ -479,13 +486,13 @@ def _tesseract(png: bytes, *args: str, timeout: int = 180) -> str:
     ordner = tesseract_ordner()
     if not ordner:
         raise PdfFehler("OCR-Komponente (Tesseract) nicht gefunden – Ordner „ocr“ neben BnX-Raptor.exe fehlt.")
-    with tempfile.TemporaryDirectory(prefix="bnx-ocr-") as td:
-        bild = Path(td) / "seite.png"
-        bild.write_bytes(png)
-        env = dict(os.environ, TESSDATA_PREFIX=str(ordner / "tessdata"))
-        r = subprocess.run([str(ordner / "tesseract.exe"), str(bild), "stdout", *args],
-                           capture_output=True, env=env, timeout=timeout,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # Tesseract scheitert an Pfaden mit Umlauten (z. B. „C:\Users\Müller\…“, „Masaüstü“): „Cannot convert
+    # character sequence“. Deshalb: Bild über stdin (keine Temp-Datei), Arbeitsordner = ocr\, Sprachdaten
+    # über den relativen, reinen ASCII-Pfad „tessdata“.
+    env = dict(os.environ, TESSDATA_PREFIX="tessdata")
+    r = subprocess.run([str(ordner / "tesseract.exe"), "stdin", "stdout", *args],
+                       input=png, capture_output=True, env=env, cwd=str(ordner), timeout=timeout,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode:
         raise PdfFehler("OCR fehlgeschlagen: " + r.stderr.decode("utf-8", "replace")[-300:])
     return r.stdout.decode("utf-8", "replace")
@@ -592,7 +599,7 @@ def ausrichtung(page) -> tuple[int, float]:
 
 def textebene_einfuegen(page, worte: list[OcrWort]) -> int:
     """Unsichtbare, durchsuchbare Textebene (render_mode 3) wortgenau über das Scanbild legen."""
-    font = pymupdf.Font(fontfile=str(systemschrift(ERSATZ_SCHRIFT)))
+    font = schrift_laden()
     tw = pymupdf.TextWriter(page.rect)
     for w in worte:
         laenge = font.text_length(w.text, fontsize=1)
@@ -689,8 +696,7 @@ def scan_wort_ersetzen(page, alt: str, neu: str, rect: pymupdf.Rect | None = Non
                           graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
                           text=pymupdf.PDF_REDACT_TEXT_REMOVE)
 
-    datei = systemschrift(schrift) or systemschrift(ERSATZ_SCHRIFT)
-    font = pymupdf.Font(fontfile=str(datei))
+    font = schrift_laden(schrift)
     fs = rect.width / max(font.text_length(alt, fontsize=1), 0.1)
     tw = pymupdf.TextWriter(page.rect, color=farbe)
     tw.append((rect.x0, basis_pt), neu, font=font, fontsize=fs)

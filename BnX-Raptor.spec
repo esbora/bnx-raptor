@@ -6,10 +6,18 @@
 HARIC_MODULE = ["onnxruntime", "pymupdf_layout", "pymupdf4llm", "pymupdf.layout", "numpy", "networkx",
                 "tabulate", "yaml", "psutil"]
 HARIC_PFADE = ("pymupdf/layout", "pymupdf\\layout", "pymupdf/mupdf-devel", "pymupdf\\mupdf-devel")
+# Von PySide6 automatisch mitgebrachte, in BnX-Raptor ungenutzte Qt-Teile (weniger Größe und Lizenzpflichten):
+# Qt PDF/PDFium, QML/Quick, Bildschirmtastatur, Software-OpenGL (Mesa). Geprüft: keine verbleibende Qt-DLL
+# importiert diese Dateien (Import-Tabellen, 0.4.0).
+HARIC_DATEIEN = {"opengl32sw.dll", "qt6pdf.dll", "qpdf.dll", "qt6virtualkeyboard.dll", "qtvirtualkeyboardplugin.dll",
+                 "qt6quick.dll", "qt6qml.dll", "qt6qmlmeta.dll", "qt6qmlmodels.dll", "qt6qmlworkerscript.dll",
+                 "qt6opengl.dll"}
 
 
 def _behalten(eintrag):
     ziel = eintrag[0].replace("\\", "/")
+    if ziel.rsplit("/", 1)[-1].lower() in HARIC_DATEIEN:
+        return False
     return not any(ziel.startswith(p.replace("\\", "/")) for p in HARIC_PFADE)
 
 
