@@ -20,6 +20,10 @@ class AppContext:
         # çağrıyla değiştirir; testlerde ve varsayılan olarak doğrudan çağrılır.
         # Not: SQLite (journal/adres defteri) sadece ana iş parçacığında kullanılabilir.
         self.im_hintergrund = lambda fn, frist=None: fn()
+        # 0.4: oluşturulan PDF taslağa eklenmeden önce PDF-Editor'de kontrol/düzenleme.
+        # Varsayılan: değişiklik yok. Arayüz, kullanıcı isterse editörü açan bir fonksiyon koyar;
+        # dönen yol taslağa eklenecek (önizlemede onaylanmış) dosyadır.
+        self.pdf_nachbearbeiten = lambda pdf: pdf
 
     @property
     def adressbuch(self):

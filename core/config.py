@@ -41,8 +41,11 @@ DEFAULTS: dict = {
     "update_repo": "esbora/BnX-Raptor",  # GitHub "kullanici/repo" – boş = güncelleme kontrolü kapalı
     "update_pruefen": True,
     "signatur_quelle": "outlook",     # "outlook" (Outlook imzası) | "programm" (Kanzleidaten'dan)
-    "daten_ordner": "",
-    "word_zeitlimit_sekunden": 90,    # gizli Word penceresi takılırsa işlem bu süre sonunda biter               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
+    "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
+    "word_zeitlimit_sekunden": 90,    # gizli Word penceresi takılırsa işlem bu süre sonunda biter
+    # --- PDF-Editor / Anlagen-Assistent (0.4) ---
+    "anlagen_praefix": "Anlage K",    # Anlage K1, K2 … (Kläger); z. B. "Anlage B" für Beklagte
+    "ocr_sprachen": ["deu", "tur", "eng"],   # Tesseract-Sprachen; die erste hat Vorrang
     # --- Versicherer-Adressbuch (0.3) ---
     "feld_versicherer": "Versicherer",  # Word içerik denetiminin etiketi (Tag/Title)
     # Adres bloğunda sigorta satırını tanıyan kelimeler. >= 8 harf: kelime içinde de aranır,

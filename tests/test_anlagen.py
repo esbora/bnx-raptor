@@ -1,0 +1,142 @@
+"""Anlagen-Assistent: Einlesen, Nummerierung, Hinweise, Paket (ohne Word/Outlook)."""
+import email
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+pymupdf = pytest.importorskip("pymupdf")
+from core import anlagen as an  # noqa: E402
+from core import pdf_engine as pe  # noqa: E402
+from core.docx_schreiben import docx_tabelle_lesen  # noqa: E402
+from core.mail_service import EmlDrafter, MailDraft, anhaenge_vergleichen, eml_anhaenge  # noqa: E402
+
+
+def _pdf(pfad: Path, text: str, seiten: int = 1) -> Path:
+    d = pymupdf.open()
+    for i in range(seiten):
+        fuell = " ".join(f"{text.split()[0].lower()}wort{k}" for k in range(6))
+        d.new_page().insert_text((72, 100 + 20 * i), f"{text} – Seite {i + 1} {fuell}", fontsize=12)
+    d.save(pfad)
+    return pfad
+
+
+def _bild(pfad: Path) -> Path:
+    d = pymupdf.open()
+    p = d.new_page(width=400, height=300)
+    p.draw_rect(pymupdf.Rect(20, 20, 380, 280), color=(0, 0, 1), fill=(0.8, 0.9, 1))
+    p.get_pixmap(dpi=72).save(pfad)
+    return pfad
+
+
+@pytest.fixture
+def dateien(tmp_path):
+    q = tmp_path / "quelle"
+    q.mkdir()
+    s = _pdf(q / "Klageschrift.pdf", "Klageschrift", 2)
+    a = [_pdf(q / "01_Vertrag_Mustermann.pdf", "Vertrag", 3), _bild(q / "Schadenfoto.png"),
+         _pdf(q / "Rechnung.pdf", "Rechnung Werkstatt")]
+    dup = q / "Vertrag_Kopie.pdf"
+    dup.write_bytes(a[0].read_bytes())
+    kaputt = q / "kaputt.pdf"
+    kaputt.write_bytes(b"%PDF-1.4\nnicht lesbar")
+    return s, a, dup, kaputt
+
+
+def test_einlesen_und_titel(dateien):
+    s, a, dup, kaputt = dateien
+    e = an.einlesen(a[0])
+    assert (e.titel, e.seiten, e.art, e.ok) == ("Vertrag Mustermann", 3, "pdf", True)
+    b = an.einlesen(a[1])
+    assert b.art == "bild" and b.seiten == 1 and b.ok
+    k = an.einlesen(kaputt)
+    assert not k.ok and "beschädigt" in k.fehler
+
+
+def test_nummern_und_dateinamen():
+    bez = an.bezeichnungen(3, "Anlage K", 4)
+    assert bez == ["Anlage K4", "Anlage K5", "Anlage K6"]
+    assert an.dateiname("Anlage K4") == "Anlage_K4.pdf"
+    assert an.dateiname("Anlage B 2") == "Anlage_B_2.pdf"
+    assert an.mail_betreff("Klageschrift", bez) == "Klageschrift nebst Anlage K4 bis K6"
+
+
+def test_hinweise_identisch_aehnlich_fehler(dateien):
+    s, a, dup, kaputt = dateien
+    anl = [an.einlesen(p) for p in [*a, dup, kaputt]]
+    h = an.pruefen(an.einlesen(s), anl)
+    arten = [x.art for x in h]
+    assert arten.count("identisch") == 1 and an.blockiert(h)
+    assert any("kaputt.pdf" in x.text for x in h if x.stufe == "fehler")
+    # optisch ähnlich: gleiche Seite als Scan (andere Bytes)
+    scan = pymupdf.open()
+    for seite in pymupdf.open(a[0]):
+        sp = scan.new_page()
+        sp.insert_image(sp.rect, pixmap=seite.get_pixmap(dpi=90))
+    sp_pfad = a[0].with_name("Vertrag_Scan.pdf")
+    scan.save(sp_pfad)
+    scan_e = an.einlesen(sp_pfad)
+    assert not scan_e.worte                                 # Scan ohne Text
+    probe = [(w, 90.0, 0, 0, 1, 1, 1, 1, 1) for w in pymupdf.open(a[0])[0].get_text().split()]
+    an.textprobe_ergaenzen(scan_e, lambda png, dpi: probe)  # OCR-Probe (hier simuliert)
+    h2 = an.pruefen(an.einlesen(s), [an.einlesen(a[0]), scan_e])
+    assert [x.art for x in h2] == ["aehnlich"] and not an.blockiert(h2)
+
+
+def _word_stub(quelle, ziel):
+    _pdf(ziel, "aus Word")
+
+
+def test_paket_reihenfolge_namen_verzeichnis(dateien, tmp_path):
+    s, a, dup, kaputt = dateien
+    anl = [an.einlesen(p) for p in a]
+    anl = [anl[2], anl[0], anl[1]]                     # Nutzer hat umsortiert
+    anl[0].titel = "Werkstattrechnung"
+    bez = an.bezeichnungen(len(anl))
+    vorher = {p: p.read_bytes() for p in [s, *a]}
+    paket = an.paket_erstellen(tmp_path / "aus", an.einlesen(s), anl, bez, _word_stub, gesamt_pdf=True)
+    namen = [d.pfad.name for d in paket.dateien]
+    assert namen == ["Schriftsatz.pdf", "Anlage_K1.pdf", "Anlage_K2.pdf", "Anlage_K3.pdf",
+                     "Anlagenverzeichnis.docx", "Gesamt_zur_internen_Pruefung.pdf"]
+    assert "Rechnung Werkstatt" in pymupdf.open(paket.dateien[1].pfad)[0].get_text()
+    zeilen = docx_tabelle_lesen(paket.ordner / "Anlagenverzeichnis.docx")
+    assert zeilen == [["Anlage", "Bezeichnung", "Seiten"], ["Anlage K1", "Werkstattrechnung", "1"],
+                      ["Anlage K2", "Vertrag Mustermann", "3"], ["Anlage K3", "Schadenfoto", "1"]]
+    g = pymupdf.open(paket.ordner / an.GESAMT)
+    assert g.page_count == 2 + 1 + 3 + 1 and g.get_toc()[1][1] == "Anlage K1 – Werkstattrechnung"
+    assert all(p.read_bytes() == b for p, b in vorher.items())          # Originale unverändert
+    assert not list(paket.ordner.glob(".bnx-paket-*"))
+    # zweiter Lauf: nichts wird überschrieben
+    with pytest.raises(an.Namenskonflikt) as k:
+        an.paket_erstellen(paket.ordner, an.einlesen(s), anl, bez, _word_stub)
+    assert k.value.vorschlag[1].name == "Anlage_K1_2.pdf"
+    p2 = an.paket_erstellen(paket.ordner, an.einlesen(s), anl, bez, _word_stub, umbenennen_erlaubt=True)
+    assert p2.dateien[0].pfad.name == "Schriftsatz_2.pdf"
+
+
+def test_paket_bricht_ohne_reste_ab(dateien, tmp_path):
+    s, a, dup, kaputt = dateien
+    word = tmp_path / "Schriftsatz.docx"
+    word.write_bytes(b"PK fake")
+    se = an.einlesen(word)
+
+    def word_fehler(q, z):
+        raise RuntimeError("Word hängt")
+    ziel = tmp_path / "aus2"
+    with pytest.raises(RuntimeError):
+        an.paket_erstellen(ziel, se, [an.einlesen(a[0])], ["Anlage K1"], word_fehler)
+    assert list(ziel.iterdir()) == []
+    with pytest.raises(pe.PdfFehler, match="kaputt"):
+        an.paket_erstellen(ziel, se, [an.einlesen(kaputt)], ["Anlage K1"], _word_stub)
+
+
+def test_anhaenge_vergleich_und_eml(tmp_path):
+    a = _pdf(tmp_path / "Anlage_K1.pdf", "A")
+    b = _pdf(tmp_path / "Anlage_K2.pdf", "B")
+    msg = EmlDrafter().build(MailDraft("x@example.com", "S", "<p>x</p>", [a, b]))
+    eml = tmp_path / "e.eml"
+    eml.write_bytes(bytes(msg))
+    assert anhaenge_vergleichen(eml_anhaenge(eml), [a, b]) == []
+    assert anhaenge_vergleichen(eml_anhaenge(eml), [b, a])          # falsche Reihenfolge erkannt
+    assert email.message_from_bytes(eml.read_bytes())["X-Unsent"] == "1"

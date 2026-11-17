@@ -1,3 +1,20 @@
+## BnX-Raptor 0.4.0
+
+- Neu: **Anlagen-Assistent** (Reiter „Anlagen“). Schriftsatz (Word oder PDF) und Anlagen (PDF, JPG, PNG, TIFF) hineinziehen – die Word-Datei wird automatisch als Schriftsatz erkannt (änderbar mit „Auswahl als Schriftsatz“).
+- Anlagen werden automatisch nummeriert („Anlage K1“, „Anlage K2“ …). Präfix, Startnummer und die Bezeichnung jeder Anlage (F2) sind änderbar. Reihenfolge per Ziehen oder Alt+↑/↓ – Nummern, Dateinamen, Anlagenverzeichnis und Outlook-Anhänge folgen immer derselben Reihenfolge.
+- Vorschau jeder Anlage mit Seiten: drehen, Seite löschen, Seiten als eigene Anlage herauslösen, Texterkennung (OCR) für Scans, „Im PDF-Editor öffnen…“. Die Originaldateien werden nie verändert.
+- Hinweise vor dem Erstellen: beschädigte oder unlesbare Dateien (mit Dateiname – das Paket kann dann nicht erstellt werden), Byte für Byte identische Dateien, Dateien mit ähnlichem Inhalt (z. B. PDF und Scan derselben Rechnung) und auf dem Kopf stehende Scan-Seiten („Ausrichtung korrigieren“). Was entfernt wird, entscheiden Sie.
+- „Paket prüfen und erstellen…“: eine Kontrollansicht mit Schriftsatz, Reihenfolge, Ausgabedateien, Seitenzahlen und Hinweisen. Ergebnis im gewählten Ordner: Schriftsatz.pdf (PDF/A wie bisher), Anlage_K1.pdf, Anlage_K2.pdf … und ein bearbeitbares Anlagenverzeichnis.docx (Anlage, Bezeichnung, Seiten). Optional ein Gesamt-PDF zur internen Prüfung.
+- Vorhandene Dateien werden nicht überschrieben (Rückfrage, dann „_2“). Bricht das Erstellen ab, bleiben keine halbfertigen Dateien zurück – das Paket gilt dann nicht als fertig.
+- „Outlook-Entwurf erstellen…“: Vorschau der Anhänge (Reihenfolge, Größe, Prüfsumme), danach Entwurf im klassischen Outlook bzw. als .eml. BnX-Raptor prüft, dass die Anhänge im Entwurf genau den bestätigten Dateien entsprechen. Es wird nichts gesendet.
+- Neu: **PDF bearbeiten** (Menü „Werkzeuge“). Seiten ansehen, suchen, Text markieren und kopieren; Seiten per Ziehen sortieren, drehen, löschen, duplizieren, zuschneiden; PDF/Bild einfügen, Seiten als eigenes PDF speichern, aufteilen.
+- Echter Textaustausch in digitalen PDFs: Absatz anklicken, Text ändern (Schrift, Größe, Farbe, Ausrichtung). Der alte Text wird aus der Datei entfernt, nicht überdeckt. Vor dem Übernehmen zeigt eine Vorschau Hinweise, z. B. wenn ein Absatz mit gemischter Formatierung vereinheitlicht wird, eine Ersatzschrift nötig ist oder der Text nicht passt. Neuer Text kann an beliebiger Stelle eingefügt werden.
+- Texterkennung (OCR) auf dem eigenen Rechner für Deutsch, Türkisch und Englisch – für eine Seite, ausgewählte Seiten oder das ganze Dokument. Gescannte Seiten werden durchsuchbar; unsicher erkannte Wörter und geschützte Angaben (Aktenzeichen, E-Mail, IBAN, Nummern) werden zur Prüfung aufgelistet und nie automatisch geändert. Auf dem Kopf stehende Seiten werden erkannt. Eine Schräglagenkorrektur gibt es noch nicht.
+- Wort im Scan korrigieren: sichtbare Seite und Suchtext werden gemeinsam geändert.
+- Endgültig schwärzen (Bereiche markieren oder Suchtreffer): Text, OCR-Text und Bildpunkte werden entfernt; beim Speichern außerdem eingebettete Dateien, Metadaten und Vorschaubilder. Die gespeicherte Datei wird danach automatisch neu geöffnet und geprüft.
+- Rückgängig/Wiederholen, „Speichern unter…“ in eine neue Datei (das Original bleibt immer unverändert), Warnung bei ungespeicherten Änderungen. Digital signierte PDFs werden erkannt; Änderungen werden nur als Kopie gespeichert.
+- Versicherungsschreiben: neue Option „PDF vor dem Entwurf im PDF-Editor prüfen/bearbeiten“; anschließend wird angezeigt, welche Fassung angehängt wird.
+
 ## BnX-Raptor 0.3.0
 
 - Neu: **Versicherer-Adressbuch.** Der Name des Versicherers wird aus dem Anschriftenfeld des Schreibens gelesen (oder aus dem Vorlagenfeld „Versicherer“) und im Prüfen-Fenster mit Quelle angezeigt; er kann dort korrigiert werden.

@@ -8,7 +8,7 @@ Bu dosya Claude Code için proje talimatıdır. Her oturumun başında okunur.
 Amacı avukatın tekrar eden yazışma işlerini tek ekrandan, birkaç tıklamayla yapmaktır.
 Program zamanla büyüyecek; her yeni iş ayrı bir **iş akışı (workflow) modülü** olarak eklenecek.
 
-Mevcut sürüm: `version.py` dosyasına bakın (şu an 0.3.0). Değişiklikler `CHANGELOG.md` dosyasında.
+Mevcut sürüm: `version.py` dosyasına bakın (`main`: 0.2.0 yayımlı; `v0.3.0-entwicklung`: 0.3.0; yerel `v0.4.0-pdf`: 0.4.0). Değişiklikler `CHANGELOG.md` dosyasında.
 
 ## 2. Dil ve iletişim
 
@@ -61,6 +61,9 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   mail_service.py       OutlookClassicDrafter, EmlDrafter       [COM / saf]
   word_service.py       Word okuma, PDF/A; zaman sınırı (sadece kendi Word sürecini kapatır)  [COM]
   pdf_engine.py         0.4: PDF motoru (PyMuPDF) + yerel OCR (Tesseract, exe yanındaki ocr\) – sadece editör açılınca yüklenir
+  pdf_sitzung.py        PDF düzenleme oturumu: bellekte kopya, geri al/yinele, önizleme, Speichern unter + karartma kontrolü
+  anlagen.py            Anlagen-Assistent mantığı: okuma, numara, uyarılar (aynı/benzer/bozuk/ters), paket (geçici klasör)
+  docx_schreiben.py     Word'süz basit .docx (Anlagenverzeichnis)  [saf Python]
   outlook_eingang.py    gelen kutusu arama, .msg kaydetme        [COM]
   eingang_service.py    gelen e-postayı kaydetme + günlüğe yazma
 workflows/
@@ -72,6 +75,9 @@ ui/
   akten_tab.py          dosya listesi, dosya geçmişi, içe aktarma, e-posta taslağı
   kanzlei_dialog.py     büro bilgileri + logo + imza önizlemesi
   adressbuch_dialog.py  Versicherer-Adressbuch: görme, arama, düzenleme, ekleme, silme
+  pdf_editor.py         „PDF bearbeiten“ (QDialog; Word→PDF akışından ve Anlagen'den de açılır)
+  anlagen_tab.py        Anlagen-Assistent sekmesi (ilk açılışta yüklenir) + Kontrollansicht
+  pdf_ui.py             ortak: görüntü, arka plan işi (Tesseract), AnhangVorschau (Outlook öncesi ek önizlemesi)
 ```
 
 ### Workflow sözleşmesi
@@ -129,13 +135,21 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 - [x] 0.4 Faz 0 – PDF motoru prototipi (`v0.4.0-pdf` dalı, yalnızca yerel; 2026-11-17): dijital PDF'te cümle değiştirme,
   deu/tur/eng OCR + taranmış sayfada kelime düzeltme, kalıcı karartma, önizlemeli Outlook taslağı – normal uygulamada
   ve paketli EXE'de geçti. ZIP 49,1 → 112,7 MB. Ayrıntı: aşağıda „Açık kararlar“.
+- [x] 0.4.0 (yerel `v0.4.0-pdf`, 2026-11-17): PDF-Editor Faz 1 (sayfalar, gerçek metin değiştirme, deu/tur/eng OCR,
+  taranmış kelime düzeltme, kalıcı karartma + kayıt sonrası doğrulama, geri al, „Speichern unter…“) ve
+  Anlagen-Assistent (tek ekran, Anlage K1…, Anlagenverzeichnis.docx, Outlook ek doğrulaması). Hayali dilekçe + 10 ekle
+  uçtan uca kabul testi normal uygulamada ve paketli EXE'de geçti. Eğiklik düzeltme (deskew) YOK.
+- [ ] **Bekliyor:** `release.yml` 0.4 paketine uyarlanmadı (ocr\ klasörü, PyMuPDF ek paketlerinin hariç tutulması,
+  lisans metinleri) – lisans/dağıtım kararından sonra. Şu an `main`'e birleştirme bozuk/eksik bir EXE üretir.
+- [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
 
 ## 9. Yol haritası (her madde ayrı onayla yapılır)
 
 **Kısa vade**
 1. ~~**Versicherer-Adressbuch**~~ – 0.3.0'da yapıldı.
 2. **Kendi dosya numarası (Aktenzeichen):** Konu satırına ve dosya adına eklenir; Akten listesinde aranabilir.
-3. **Ekleri tek PDF'te birleştirme:** Ekler damgalanır (Anlage K1, K2 …); boyut kontrolü yapılır.
+3. ~~**Ekleri tek PDF'te birleştirme**~~ – 0.4.0 Anlagen-Assistent (ayrı PDF'ler + isteğe bağlı iç kontrol PDF'i).
+   Açık: Anlage damgası (sayfaya „Anlage K1“ yazısı), boyut kontrolü (beA sınırları).
 4. **Textbausteine:** Her iş akışı için birden fazla e-posta metni; kontrol penceresinde seçilir.
 5. **Word düğmesi:** Word menü şeridinde, aktif belgeyi kaydedip programa gönderen bir makro.
 

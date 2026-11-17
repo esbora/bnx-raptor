@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QEventLoop, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
     QHeaderView, QLabel, QListWidget, QMainWindow, QMessageBox, QPushButton,
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
@@ -57,6 +57,10 @@ def im_hintergrund(fn, frist_sekunden: float):
     if "fehler" in sonuc:
         raise sonuc["fehler"]
     return sonuc.get("wert")
+
+
+class AbbruchDurchNutzer(Exception):
+    """Nutzer hat im Ablauf abgebrochen (kein Fehler)."""
 
 
 class _UpdateSignal(QObject):
@@ -216,6 +220,9 @@ class MainWindow(QMainWindow):
         menu = self.menuBar().addMenu("Einstellungen")
         menu.addAction("Kanzleidaten…", self.kanzleidaten_bearbeiten)
         menu.addAction("Versicherer-Adressbuch…", self.adressbuch_bearbeiten)
+        werkzeuge = self.menuBar().addMenu("Werkzeuge")
+        werkzeuge.addAction("PDF bearbeiten…", self.pdf_bearbeiten)
+        werkzeuge.addAction("Anlagenpaket erstellen", lambda: self.anlagen_oeffnen([]))
         hilfe = self.menuBar().addMenu("Hilfe")
         hilfe.addAction("Nach Updates suchen", lambda: self.update_pruefen(manuell=True))
         hilfe.addAction("Über BnX-Raptor", self.ueber)
@@ -230,9 +237,15 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_work_tab(), "Bearbeiten")
+        # Anlagen-Assistent wird erst beim ersten Öffnen aufgebaut (PDF-Bibliothek nicht beim Start laden)
+        self.anlagen_huelle = QWidget()
+        QVBoxLayout(self.anlagen_huelle).setContentsMargins(0, 0, 0, 0)
+        self.anlagen_tab = None
+        self.tabs.addTab(self.anlagen_huelle, "Anlagen")
         self.akten_tab = AktenTab(ctx)
         self.tabs.addTab(self.akten_tab, "Akten")
-        self.tabs.addTab(self._build_history_tab(), "Verlauf")
+        self.verlauf_tab = self._build_history_tab()
+        self.tabs.addTab(self.verlauf_tab, "Verlauf")
         self.tabs.currentChanged.connect(self.tab_gewechselt)
 
         zentral = QWidget()
@@ -248,10 +261,51 @@ class MainWindow(QMainWindow):
             self.update_pruefen()
 
     def tab_gewechselt(self, i: int):
-        if self.tabs.widget(i) is self.akten_tab:
+        w = self.tabs.widget(i)
+        if w is self.akten_tab:
             self.akten_tab.laden()
-        elif i == 2:
+        elif w is self.verlauf_tab:
             self.refresh_history()
+        elif w is self.anlagen_huelle:
+            self._anlagen_tab()
+
+    # --- PDF-Editor / Anlagen-Assistent (0.4) ---
+    def _anlagen_tab(self):
+        if self.anlagen_tab is None:
+            from .anlagen_tab import AnlagenTab
+            self.anlagen_tab = AnlagenTab(self.ctx, im_hintergrund)
+            self.anlagen_huelle.layout().addWidget(self.anlagen_tab)
+        return self.anlagen_tab
+
+    def anlagen_oeffnen(self, pfade: list[Path]):
+        self.tabs.setCurrentWidget(self.anlagen_huelle)
+        tab = self._anlagen_tab()
+        if pfade:
+            tab.hinzufuegen(pfade)
+
+    def pdf_bearbeiten(self, pfad: Path | None = None):
+        if pfad is None:
+            name, _ = QFileDialog.getOpenFileName(self, "PDF bearbeiten", "", "PDF (*.pdf)")
+            if not name:
+                return
+            pfad = Path(name)
+        from core.pdf_engine import SPRACHEN
+        from .pdf_editor import PdfEditor
+        PdfEditor(self, pfad, sprachen=tuple(self.cfg.get("ocr_sprachen", SPRACHEN))).exec()
+
+    def _pdf_nachbearbeiten(self, pdf: Path) -> Path:
+        """Word→PDF-Ablauf: erzeugtes PDF im Editor prüfen; danach zeigen, welche Fassung angehängt wird."""
+        from core.pdf_engine import SPRACHEN
+        from .pdf_editor import PdfEditor
+        from .pdf_ui import AnhangVorschau
+        ed = PdfEditor(self, pdf, sprachen=tuple(self.cfg.get("ocr_sprachen", SPRACHEN)))
+        ed.exec()
+        wahl = ed.gespeichert or pdf
+        dlg = AnhangVorschau(self, [(wahl, "bearbeitete Fassung" if ed.gespeichert else "PDF aus Word (unverändert)",
+                                     True)], "Anhang für den Entwurf")
+        if dlg.exec() != QDialog.Accepted or not dlg.auswahl():
+            raise AbbruchDurchNutzer()
+        return wahl
 
     def titel_aktualisieren(self):
         k = self.ctx.kanzlei
@@ -346,6 +400,9 @@ class MainWindow(QMainWindow):
         row.addWidget(self.b_run)
         lay.addLayout(row)
 
+        self.cb_pdf_pruefen = QCheckBox("PDF vor dem Entwurf im PDF-Editor prüfen/bearbeiten")
+        lay.addWidget(self.cb_pdf_pruefen)
+
         self.status = QLabel("")
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
@@ -374,6 +431,8 @@ class MainWindow(QMainWindow):
         zeit = float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90))
         # Word işi arka planda: pencere tepki vermeye devam eder, takılırsa süre sonunda biter
         self.ctx.im_hintergrund = lambda fn, frist=None: im_hintergrund(fn, frist or zeit + 30)
+        self.ctx.pdf_nachbearbeiten = (self._pdf_nachbearbeiten if self.cb_pdf_pruefen.isChecked()
+                                       else (lambda pdf: pdf))
         self.b_run.setEnabled(False)                # işlem sürerken ikinci kez başlatılamaz
         try:
             done = self._dokumente_bearbeiten(wf, paths)
@@ -415,6 +474,9 @@ class MainWindow(QMainWindow):
                                  "ok" if res.ok else "fehler", res.message)
                 self.status.setText(res.message)
                 done += 1
+            except AbbruchDurchNutzer:
+                self.journal.add(wf.id, str(p), status="abgebrochen", meldung="Anhang nicht bestätigt")
+                self.status.setText(f"{p.name}: abgebrochen – kein Entwurf erstellt.")
             except Exception as e:  # noqa: BLE001
                 self.journal.add(wf.id, str(p), status="fehler",
                                  meldung=f"{e}\n{traceback.format_exc()}")

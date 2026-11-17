@@ -77,5 +77,11 @@
     "Allg.": "Allgemeine",
     "Dt.": "Deutsche",
     "Ges.": "Gesellschaft"
-  }
+  },
+  "anlagen_praefix": "Anlage K",
+  "ocr_sprachen": [
+    "deu",
+    "tur",
+    "eng"
+  ]
 }

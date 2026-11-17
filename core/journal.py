@@ -16,6 +16,7 @@ ARTEN = {
     "mandant": "E-Mail an Mandant",
     "eingang": "Antwort eingegangen",
     "entwurf": "E-Mail-Entwurf",
+    "anlagen": "Anlagenpaket",
 }
 
 SCHEMA = """

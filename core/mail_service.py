@@ -33,6 +33,32 @@ class MailError(Exception):
     pass
 
 
+def _sha256(daten: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(daten).hexdigest()
+
+
+def anhaenge_vergleichen(ist: list[tuple[str, str]], soll: list[Path]) -> list[str]:
+    """Taslaktaki ekler onaylanan dosyalarla aynı sırada ve birebir aynı mı? Sorunları döndürür."""
+    probleme = []
+    if len(ist) != len(soll):
+        probleme.append(f"Anzahl Anhänge: {len(ist)} statt {len(soll)}")
+    for i, (a, s) in enumerate(zip(ist, soll), start=1):
+        if a[0] != s.name:
+            probleme.append(f"Position {i}: {a[0]} statt {s.name}")
+        elif a[1] != _sha256(s.read_bytes()):
+            probleme.append(f"Position {i}: {s.name} weicht vom geprüften Inhalt ab")
+    return probleme
+
+
+def eml_anhaenge(pfad: Path) -> list[tuple[str, str]]:
+    import email
+    from email import policy
+    msg = email.message_from_bytes(Path(pfad).read_bytes(), policy=policy.default)
+    return [(p.get_filename(), _sha256(p.get_payload(decode=True)))
+            for p in msg.iter_attachments() if p.get_filename()]
+
+
 def insert_into_body(full_html: str, snippet: str) -> str:
     """Metni <body> etiketinin hemen arkasına, yani imzanın önüne koyar."""
     m = re.search(r"<body[^>]*>", full_html, re.IGNORECASE)
@@ -68,7 +94,25 @@ class OutlookClassicDrafter:
         for a in draft.attachments:
             mail.Attachments.Add(str(a))
         # KEIN mail.Send()
+        self.mail = mail
         return "Outlook-Entwurf geöffnet"
+
+    def anhaenge(self) -> list[tuple[str, str]]:
+        """Taslaktaki ekler (imza logosu hariç) sırayla: (dosya adı, SHA-256) – Outlook'tan geri okunur."""
+        import tempfile
+        out = []
+        with tempfile.TemporaryDirectory(prefix="bnx-anh-") as td:
+            for k in range(1, self.mail.Attachments.Count + 1):
+                att = self.mail.Attachments.Item(k)
+                try:
+                    if att.PropertyAccessor.GetProperty(PR_ATTACH_CONTENT_ID) == LOGO_CID:
+                        continue
+                except Exception:  # noqa: BLE001 – Eigenschaft fehlt = normaler Anhang
+                    pass
+                f = Path(td) / f"{k}_{att.FileName}"
+                att.SaveAsFile(str(f))
+                out.append((att.FileName, _sha256(f.read_bytes())))
+        return out
 
 
 class EmlDrafter:
@@ -93,6 +137,7 @@ class EmlDrafter:
 
     def create(self, draft: MailDraft, target: Path) -> str:
         target.write_bytes(bytes(self.build(draft)))
+        self.ziel = target
         if hasattr(os, "startfile"):
             os.startfile(str(target))  # type: ignore[attr-defined]
         return f"Entwurf als {target.name} geöffnet"

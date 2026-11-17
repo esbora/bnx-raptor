@@ -136,6 +136,7 @@ class VersicherungBrief(Workflow):
             with self._word() as w:
                 w.export_pdf(path, pdf, pdfa=self.cfg.get("pdfa", True))
         self.ctx.im_hintergrund(pdf_erstellen, self._frist())
+        pdf = self.ctx.pdf_nachbearbeiten(pdf)          # 0.4: optional im PDF-Editor prüfen/bearbeiten
 
         self.ctx.journal.akte_speichern(nummer, ordner=str(path.parent), nummer_art=art,
                                         versicherer_email=empfaenger, mandant_email=mandant)
