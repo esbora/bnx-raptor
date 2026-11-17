@@ -60,6 +60,7 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   entwurf.py            entwurf_erstellen(ctx, MailDraft, eml_klasoru) – TÜM taslaklar buradan geçer
   mail_service.py       OutlookClassicDrafter, EmlDrafter       [COM / saf]
   word_service.py       Word okuma, PDF/A; zaman sınırı (sadece kendi Word sürecini kapatır)  [COM]
+  pdf_engine.py         0.4: PDF motoru (PyMuPDF) + yerel OCR (Tesseract, exe yanındaki ocr\) – sadece editör açılınca yüklenir
   outlook_eingang.py    gelen kutusu arama, .msg kaydetme        [COM]
   eingang_service.py    gelen e-postayı kaydetme + günlüğe yazma
 workflows/
@@ -125,6 +126,9 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 - [ ] **Bekliyor:** Büro bilgisayarında gerçek şablonla son kontrol (Word/Outlook sürümü, Office oturumu)
 - [x] GitHub deposu: https://github.com/esbora/BnX-Raptor (herkese açık); `update_repo` varsayılan olarak ayarlı
 - [ ] Büronun Word şablonuna içerik denetimlerinin eklenmesi
+- [x] 0.4 Faz 0 – PDF motoru prototipi (`v0.4.0-pdf` dalı, yalnızca yerel; 2026-11-17): dijital PDF'te cümle değiştirme,
+  deu/tur/eng OCR + taranmış sayfada kelime düzeltme, kalıcı karartma, önizlemeli Outlook taslağı – normal uygulamada
+  ve paketli EXE'de geçti. ZIP 49,1 → 112,7 MB. Ayrıntı: aşağıda „Açık kararlar“.
 
 ## 9. Yol haritası (her madde ayrı onayla yapılır)
 
@@ -142,6 +146,11 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 9. **Toplu işlem:** Birden fazla mektup tek bir kontrol tablosunda onaylanır.
 10. **Diğer iş akışları:** Müvekkile yazı, karşı tarafa yazı, mahkeme yazısı (beA hazırlığı).
 
+**0.4 sonrası (Anlagen-Assistent'ten sonra)**
+- **Outlook → Akte:** Outlook'ta seçilen e-posta ve ekleri dava klasörüne kaydetme.
+- **beA ZIP → Akte:** beA'dan indirilen yerel ZIP'i içe aktarma (internet bağlantısı yok).
+- **Sachstandsanfrage / Unterlagen nachreichen / Erinnerung:** tek tıkla Almanca taslak (gönderilmez).
+
 **Uzun vade**
 11. Büro yazılımı entegrasyonu (RA-MICRO / Advoware / j-lawyer).
 12. Çok kullanıcı: `daten_ordner` ağ sürücüsünde; SQLite'tan sunucu veritabanına geçiş değerlendirilir.
@@ -155,3 +164,18 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 - Program kaç kişi tarafından, kaç bilgisayarda kullanılacak? Ortak ağ sürücüsü var mı?
 - Konu satırına büronun kendi dosya numarası da eklensin mi?
 - Program ileride başka bürolara da verilecek mi? (Lisans ve kurulumu etkiler.)
+
+## 11. Açık kararlar – PDF motoru ve dağıtım lisansı (proje sahibi verecek)
+
+Durum 2026-11-17: Faz 0 prototipi onaylandı ve yerelde geçti. **Proje lisansı değiştirilmedi, ücretli lisans alınmadı,
+0.4 kodu GitHub'a yüklenmedi, PyMuPDF/Tesseract içeren EXE dağıtılmadı.** Bu karar verilene kadar öyle kalır.
+
+| Bileşen | Sürüm | Lisans | Pakete etkisi |
+|---|---|---|---|
+| PyMuPDF (MuPDF) | 2.1 / 1.28.6 | AGPL-3.0 **veya** Artifex ticari lisansı (fiyat yayımlanmıyor, teklif usulü) | +18,6 MB ZIP; `layout`/onnxruntime ve `mupdf-devel` pakete alınmaz |
+| Tesseract | 5.5.3 (resmî Windows kurulumu, SHA-256 doğrulandı) | Apache-2.0 | `ocr\` klasörü 86,5 MB (exe + 33 DLL + deu/tur/eng `tessdata_best` + osd), +45 MB ZIP |
+
+- Öneri (Claude): BnX-Raptor'ı AGPL-3.0 ile lisanslamak (depo zaten açık, maliyet yok). Alternatif: Artifex'ten teklif almak.
+- Tesseract'ın yanında gelen MinGW/MSYS2 DLL'lerinin lisansları (ör. libjbig GPL, libiconv/libintl LGPL, libstdc++ GCC
+  Runtime Exception) dağıtımdan önce tek tek listelenmeli ve `lizenzen\` klasörüne konmalı.
+- Karar bekleyen sorular: (1) proje lisansı, (2) PyMuPDF+Tesseract içeren paketin dağıtımı, (3) 0.4 dalının GitHub'a yüklenmesi.
