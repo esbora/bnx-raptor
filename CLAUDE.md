@@ -160,6 +160,14 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 - [x] 0.4.0 arayüz DONDURULDU (2026-11-18, proje sahibi onayı): pilot sürüm = 0fe8ec5 (yerel etiket `v0.4.0-pilot`),
   `ui/theme.py` tasarımı (açık sol menü, şeftali seçim, beyaz kartlar, mavi ana buton). Büro testinden sonra YALNIZCA
   kullanımı aksatan sorunlar düzeltilir; tasarım değişikliği veya yeni özellik yok.
+- [x] Pilot geri bildirimi (2026-11-18, kullanıcının 8 ekran görüntüsü, açık talimat): OneDrive'da paket (yerel geçici
+  klasör + kopyala/adlandır + kilitte tekrar), Prüfen penceresi kaldırıldı, Hauptdokument isteğe bağlı, açılamayan ek
+  orijinal olarak pakete, Text bearbeiten paragraf seçimi (tıklama/◀▶, taranmışta OCR blokları), Strg+S aynı dosyaya
+  güvenli kayıt + „OK – Änderungen speichern“, Vorschau çift tıklama, Versicherungsschreiben içerik düzenleme (Word
+  COM paragraf farkı; PDF → kendi dönüştürme – Word PDF-Reflow görünmez Word'de soru penceresinde takılıyor ve yalnızca
+  Office ayarıyla kapatılabiliyor → kullanılmıyor), Akten klasörden ekleme/Verlauf düzenleme, Dokumentenarchiv,
+  Mandanten/Versicherungen (e-postalar = Versicherer-Adressbuch). Arayüz: gereksiz tıklamalar azaltıldı (canlı önizleme,
+  otomatik kayıt, onay pencereleri kaldırıldı).
 - [ ] **Bekliyor:** Gerçek büro testi (`Pilot_0.4.0\BUEROTEST_CHECKLISTE.txt`), ikinci bilgisayar/SmartScreen, bağımsız PDF/A doğrulaması, yeni Outlook.
 - [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
