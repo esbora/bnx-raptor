@@ -25,6 +25,7 @@ from core.extractor import betreff as betreff_bilden
 from core.extractor import is_valid_email
 from core.journal import ARTEN
 from core.mail_service import MailDraft
+from core.fehlertexte import meldung
 
 from . import theme
 
@@ -356,7 +357,7 @@ class AktenTab(QWidget):
         self.l_mandant_kontakt.setText(self._kontakt_text(m))
         self.l_mandant_kontakt.setVisible(m is not None)
         v, mails, std = self._versicherung_daten()
-        self.l_vers_kontakt.setText(self._kontakt_text(v, [f"{e} (Standard)" if e == std else e for e in mails]))
+        self.l_vers_kontakt.setText(self._kontakt_text(v, [f"{meldung(e)} (Standard)" if e == std else e for e in mails]))
         self.l_vers_kontakt.setVisible(v is not None)
 
     def _vers_adressen_setzen(self, auswahl: str | None):
@@ -477,7 +478,7 @@ class AktenTab(QWidget):
             else:
                 self.vorschau.setText(p.name)
         except Exception as e:  # noqa: BLE001
-            self.vorschau.setText(f"Keine Vorschau: {e}")
+            self.vorschau.setText(f"Keine Vorschau: {meldung(e)}")
 
     def akte_speichern(self):
         if self._laedt:
@@ -604,7 +605,16 @@ class AktenTab(QWidget):
             dlg = WordDialog(self, p, lambda fn, frist: im_hintergrund(fn, frist),
                              float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90)), original)
             dlg.exec()
-            gespeichert = dlg.ed.basis != "" and dlg.result() == QDialog.Accepted
+            if dlg.kopie is not None:                     # Kopie (Original unverändert) → Verlauf + Archiv der Akte
+                ref = self._akte_fuer_archiv()
+                self.ctx.archiv.erfassen(dlg.kopie, akte=ref, rolle="bearbeitet", quelle=p,
+                                         notiz=f"in Word bearbeitete Kopie von {p.name}")
+                if ref:
+                    self.ctx.journal.add("akte", str(dlg.kopie), "", "", ref, art="dokument",
+                                         meldung=f"In Word bearbeitete Kopie von {p.name}")
+                self.akte_anzeigen()
+                return
+            gespeichert = dlg.bearbeitet                  # bereits eine BnX-Kopie → direkt bearbeitet
         if gespeichert:
             self.ctx.archiv.erfassen(p, akte=self._akte_fuer_archiv())
             self.ctx.archiv.bearbeitet(p)
@@ -653,7 +663,7 @@ class AktenTab(QWidget):
                 to=empf.strip(), subject=betreff_bilden(betreff, ref, akte.get("nummer_art", "")), html_body=text,
                 attachments=dateien), Path(akte["ordner"]) if akte["ordner"] else Path.home())
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Fehler", str(e))
+            QMessageBox.critical(self, "Fehler", meldung(e))
             return
         feld = self.f_mandant_email if an == "mandant" else self.f_versicherer.lineEdit()
         if feld.text().strip() != empf.strip():           # im Dialog eingegebene Adresse gilt für diese Akte
@@ -705,7 +715,7 @@ class AktenTab(QWidget):
             finally:
                 QGuiApplication.restoreOverrideCursor()
         except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, "Outlook", str(e))
+            QMessageBox.warning(self, "Outlook", meldung(e))
             return
         if not kand:
             QMessageBox.information(self, "Outlook", "Keine neuen Antworten gefunden.")
@@ -723,7 +733,7 @@ class AktenTab(QWidget):
                 protokollieren(self.ctx, k.referenz, k.absender, k.betreff, dateien, k.quelle_id)
                 n += 1
             except Exception as e:  # noqa: BLE001
-                QMessageBox.warning(self, "Fehler", f"{k.betreff}:\n{e}")
+                QMessageBox.warning(self, "Fehler", f"{k.betreff}:\n{meldung(e)}")
         QMessageBox.information(self, "Fertig", f"{n} Antwort(en) in den Akten abgelegt.")
         self.laden()
 
@@ -760,7 +770,7 @@ class AktenTab(QWidget):
                         protokollieren(self.ctx, k.referenz, k.absender, k.betreff, dateien, k.quelle_id)
                         n += 1
             except Exception as e:  # noqa: BLE001
-                QMessageBox.warning(self, "Fehler", f"{p.name}:\n{e}")
+                QMessageBox.warning(self, "Fehler", f"{p.name}:\n{meldung(e)}")
         if pfade:
             QMessageBox.information(self, "Import", f"{n} E-Mail(s) in den Akten abgelegt.")
         self.laden()

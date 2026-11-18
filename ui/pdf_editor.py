@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QColorDialog, QComboBox, QDial
 
 from core import pdf_engine as pe
 from core.pdf_sitzung import PdfSitzung
+from core.fehlertexte import meldung
 
 from . import theme
 from .pdf_ui import im_thread, qpixmap
@@ -646,7 +647,7 @@ class PdfEditor(QDialog):
         try:
             self.sitzung = PdfSitzung(pfad, daten, name)
         except pe.PdfFehler as e:
-            QMessageBox.critical(self, "PDF bearbeiten", str(e))
+            QMessageBox.critical(self, "PDF bearbeiten", meldung(e))
             return
         self.seite = 0
         self.ocr_worte.clear()
@@ -747,7 +748,7 @@ class PdfEditor(QDialog):
             QGuiApplication.setOverrideCursor(Qt.WaitCursor)
             erg = self.sitzung.aendern(beschreibung, fn)
         except pe.PdfFehler as e:
-            QMessageBox.warning(self, "PDF bearbeiten", str(e))
+            QMessageBox.warning(self, "PDF bearbeiten", meldung(e))
             return None
         finally:
             QGuiApplication.restoreOverrideCursor()
@@ -786,7 +787,7 @@ class PdfEditor(QDialog):
             try:
                 d = WortDialog(self, self.sitzung, self.seite, w[0], w[1], info)
             except pe.PdfFehler as e:
-                QMessageBox.warning(self, "Wort korrigieren", str(e))
+                QMessageBox.warning(self, "Wort korrigieren", meldung(e))
                 return
             if d.exec() == QDialog.Accepted:
                 if self._ausfuehren(f"Wort „{w[0]}“ korrigiert", d.aenderung) is not None:
@@ -887,7 +888,7 @@ class PdfEditor(QDialog):
         try:
             quelle = pe.oeffnen(Path(name), Path(name).read_bytes() if name.lower().endswith(".pdf") else None)
         except pe.PdfFehler as e:
-            QMessageBox.warning(self, "Einfügen", str(e))
+            QMessageBox.warning(self, "Einfügen", meldung(e))
             return
         self._ausfuehren(f"{Path(name).name} eingefügt", lambda d: pe.pdf_einfuegen(d, quelle, self.seite),
                          self.seite + 1)

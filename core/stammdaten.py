@@ -207,3 +207,40 @@ class Stammdaten:
     def akten_von_versicherung(self, vid: int) -> list[dict]:
         return _zeilen(self.con.execute("SELECT * FROM akten WHERE versicherung_id = ? ORDER BY angelegt DESC",
                                         (vid,)))
+
+    # --- Dokumentenordner (0.4.1) ---------------------------------------------
+    def dokumentordner(self, mandant_id: int | None = None, versicherung_id: int | None = None) -> list[tuple[str, str]]:
+        """Ordner der Dokumente aller verknüpften Akten aus der Datenbank: Aktenordner, Dateien im Verlauf
+        (gesendete/bearbeitete/eingegangene) und im Dokumentenarchiv. Rückgabe [(Ordner, Akte)], neueste zuerst,
+        nur vorhandene Ordner, ohne Doppelte."""
+        from pathlib import Path as _P
+        if mandant_id is not None:
+            akten = self.akten_von_mandant(mandant_id)
+        elif versicherung_id is not None:
+            akten = self.akten_von_versicherung(versicherung_id)
+        else:
+            return []
+        kandidaten: list[tuple[str, str, str]] = []          # (zeit, ordner, akte)
+        for a in akten:
+            ref = a["referenz"]
+            if a.get("ordner"):
+                kandidaten.append((a.get("angelegt") or "", a["ordner"], ref))
+            for zeit, ergebnis, dokument in self.con.execute(
+                    "SELECT zeit, ergebnis, dokument FROM vorgaenge WHERE referenz = ? AND status != 'abgebrochen'",
+                    (ref,)):
+                for f in (ergebnis, dokument):
+                    if f:
+                        kandidaten.append((zeit or "", str(_P(f).parent), ref))
+            try:
+                for pfad, zeit in self.con.execute(
+                        "SELECT pfad, COALESCE(NULLIF(bearbeitet, ''), hinzugefuegt) FROM dokumente WHERE akte = ?", (ref,)):
+                    kandidaten.append((zeit or "", str(_P(pfad).parent), ref))
+            except sqlite3.OperationalError:                   # Archiv noch nicht angelegt
+                pass
+        out: dict[str, tuple[str, str]] = {}
+        for zeit, ordner, ref in sorted(kandidaten, reverse=True):
+            k = ordner.lower()
+            if k not in out and _P(ordner).is_dir():
+                out[k] = (ordner, ref)
+        return list(out.values())
+

@@ -23,6 +23,7 @@ import pymupdf
 
 from core import pdf_engine as pe
 from core.docx_schreiben import docx_schreiben
+from core.fehlertexte import meldung
 
 WORD = {".docx", ".doc", ".docm", ".rtf"}
 PDF = {".pdf"}
@@ -203,7 +204,7 @@ def ocr_ausfuehren(e: Eintrag, erkenner: Callable[[bytes, int], list[tuple]], dp
             png, rueck = pe.ocr_bild(doc[s], dpi)
             worte = pe.worte_bilden(erkenner(png, dpi), rueck)
         except Exception as ex:  # noqa: BLE001
-            e.ocr_fehler.append(f"Seite {s + 1}: Texterkennung fehlgeschlagen ({str(ex)[:120]})")
+            e.ocr_fehler.append(f"Seite {s + 1}: Texterkennung fehlgeschlagen ({meldung(ex)[:160]})")
             continue
         if not worte:
             e.ocr_fehler.append(f"Seite {s + 1}: kein Text erkannt")
@@ -229,7 +230,7 @@ def word_umwandeln(e: Eintrag, word_zu_pdf: Callable[[Path, Path], None]) -> boo
             word_zu_pdf(e.quelle, ziel)
             doc = pe.oeffnen(ziel, ziel.read_bytes())
         except Exception as ex:  # noqa: BLE001
-            e.fehler = f"Word-Umwandlung fehlgeschlagen: {str(ex).splitlines()[0][:160]}"
+            e.fehler = f"Word-Umwandlung fehlgeschlagen: {meldung(ex).splitlines()[0][:200]}"
             return False
         e.daten = doc.tobytes(garbage=3, deflate=True)
         _analysieren(e, doc)
@@ -495,7 +496,7 @@ def paket_erstellen(ordner: Path, schriftsatz: Eintrag | None, anlagen: list[Ein
                     dateien.append(Paketdatei("schriftsatz", "Schriftsatz", schriftsatz.titel, s_tmp,
                                               _pruefen_und_zaehlen(s_tmp), ""))
                 except Exception as ex:  # noqa: BLE001 – Umwandlung fehlgeschlagen → Original übernehmen
-                    schriftsatz.fehler = f"Umwandlung fehlgeschlagen: {str(ex).splitlines()[0][:160]}"
+                    schriftsatz.fehler = f"Umwandlung fehlgeschlagen: {meldung(ex).splitlines()[0][:200]}"
                     s_tmp.unlink(missing_ok=True)
                     original(schriftsatz, "Schriftsatz", schriftsatz.titel)
         for i, (e, b) in enumerate(zip(anlagen, bez)):
@@ -517,7 +518,7 @@ def paket_erstellen(ordner: Path, schriftsatz: Eintrag | None, anlagen: list[Ein
                         d.save(t, garbage=4, deflate=True)
                 dateien.append(Paketdatei("anlage", b, t_, t, _pruefen_und_zaehlen(t), ""))
             except Exception as ex:  # noqa: BLE001
-                e.fehler = f"Umwandlung fehlgeschlagen: {str(ex).splitlines()[0][:160]}"
+                e.fehler = f"Umwandlung fehlgeschlagen: {meldung(ex).splitlines()[0][:200]}"
                 t.unlink(missing_ok=True)
                 original(e, b, t_)
         fortschritt("Anlagenverzeichnis wird erstellt …")

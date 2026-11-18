@@ -11,8 +11,27 @@ from PySide6.QtWidgets import (QComboBox, QFormLayout, QFrame, QHBoxLayout, QInp
                                QVBoxLayout, QWidget)
 
 from core.extractor import is_valid_email
+from core.fehlertexte import meldung
 
 from . import theme
+
+
+def ordner_oeffnen(parent, ordner: list[tuple[str, str]], knopf, status_label):
+    """Ein Ordner → sofort öffnen; mehrere → kurze Auswahl (neueste zuerst, „Alle öffnen“)."""
+    import os
+    from PySide6.QtWidgets import QMenu
+    if not ordner:
+        theme.status_setzen(status_label, None, "Noch keine gespeicherten Dokumente in den Akten.")
+        return
+    if len(ordner) == 1:
+        os.startfile(ordner[0][0])                         # type: ignore[attr-defined]
+        return
+    menu = QMenu(parent)
+    for pfad, ref in ordner:
+        menu.addAction(f"{pfad}   (Akte {ref})", lambda p=pfad: os.startfile(p))   # type: ignore[attr-defined]
+    menu.addSeparator()
+    menu.addAction(f"Alle {len(ordner)} Ordner öffnen", lambda: [os.startfile(p) for p, _ in ordner])
+    menu.exec(knopf.mapToGlobal(knopf.rect().bottomLeft()))
 
 
 class _Notiz(QPlainTextEdit):
@@ -143,6 +162,11 @@ class MandantenTab(_StammSeite):
         kopf.addWidget(theme.ueberschrift("Akten / Mandate", "h3"), 1)
         self.b_akte = QPushButton(theme.icon("plus", "titel", 16), "  Neue Akte")
         self.b_akte.clicked.connect(self.neue_akte)
+        self.b_ordner = QPushButton(theme.icon("ordner", "titel", 16), "  Dokumentenordner öffnen")
+        self.b_ordner.setToolTip("Öffnet den Ordner mit den bisherigen Dokumenten dieses Mandanten (aus den Akten)")
+        self.b_ordner.clicked.connect(lambda: ordner_oeffnen(self, self.ctx.stammdaten.dokumentordner(
+            mandant_id=self.aktuell), self.b_ordner, self.l_status))
+        kopf.addWidget(self.b_ordner)
         kopf.addWidget(self.b_akte)
         self.rl.addLayout(kopf)
         self.akten = QListWidget()
@@ -152,8 +176,9 @@ class MandantenTab(_StammSeite):
 
     def _aktiv(self, an: bool):
         super()._aktiv(an)
-        if hasattr(self, "b_akte"):
-            self.b_akte.setEnabled(an)
+        for b in ("b_akte", "b_ordner"):
+            if hasattr(self, b):
+                getattr(self, b).setEnabled(an)
 
     def laden(self):
         st = self.ctx.stammdaten
@@ -207,7 +232,7 @@ class MandantenTab(_StammSeite):
         try:
             self.ctx.stammdaten.mandant_speichern(self.aktuell, **w)
         except ValueError as e:
-            theme.status_setzen(self.l_status, "warn", str(e))
+            theme.status_setzen(self.l_status, "warn", meldung(e))
             return
         self.titel.setText(w["name"])
         it = self.liste.currentItem()
@@ -251,14 +276,22 @@ class VersicherungenTab(_StammSeite):
         self.mails = QListWidget()
         self.mails.setMaximumHeight(130)
         self.rl.addWidget(self.mails)
-        self.rl.addWidget(theme.ueberschrift("Akten", "h3"))
+        akopf = QHBoxLayout()
+        akopf.addWidget(theme.ueberschrift("Akten", "h3"), 1)
+        self.b_ordner = QPushButton(theme.icon("ordner", "titel", 16), "  Dokumentenordner öffnen")
+        self.b_ordner.setToolTip("Öffnet den Ordner mit den bisherigen Dokumenten zu dieser Versicherung (aus den Akten)")
+        self.b_ordner.clicked.connect(lambda: ordner_oeffnen(self, self.ctx.stammdaten.dokumentordner(
+            versicherung_id=self.aktuell), self.b_ordner, self.l_status) if self.aktuell else
+            theme.status_setzen(self.l_status, None, "Zu dieser Versicherung gibt es noch keine Akten."))
+        akopf.addWidget(self.b_ordner)
+        self.rl.addLayout(akopf)
         self.akten = QListWidget()
         self.akten.itemDoubleClicked.connect(lambda it: self.akte_oeffnen(it.data(Qt.UserRole)))
         self.rl.addWidget(self.akten, 1)
 
     def _aktiv(self, an: bool):
         super()._aktiv(an)
-        for b in ("b_mail", "b_mail_weg", "b_standard"):
+        for b in ("b_mail", "b_mail_weg", "b_standard", "b_ordner"):
             if hasattr(self, b):
                 getattr(self, b).setEnabled(an)
 
@@ -303,7 +336,7 @@ class VersicherungenTab(_StammSeite):
         if v:
             std = (v.get("standard_email") or "").lower()
             for e in v["emails"]:
-                it = QListWidgetItem(f"★ {e}  (Standard)" if e.lower() == std else e)
+                it = QListWidgetItem(f"★ {meldung(e)}  (Standard)" if e.lower() == std else e)
                 it.setData(Qt.UserRole, e)
                 self.mails.addItem(it)
             if v["id"] is not None:
@@ -329,7 +362,7 @@ class VersicherungenTab(_StammSeite):
         try:
             self.ctx.stammdaten.versicherung_speichern(vid, **w)
         except ValueError as e:
-            theme.status_setzen(self.l_status, "warn", str(e))
+            theme.status_setzen(self.l_status, "warn", meldung(e))
             return
         self._eintrag().update(w)
         self.titel.setText(w["name"])
@@ -349,7 +382,7 @@ class VersicherungenTab(_StammSeite):
         try:
             self.ctx.stammdaten.email_hinzufuegen(vid, mail)
         except ValueError as e:
-            QMessageBox.information(self, "E-Mail", str(e))
+            QMessageBox.information(self, "E-Mail", meldung(e))
         self.laden()
 
     def mail_entfernen(self):

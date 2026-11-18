@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from core.adressbuch import Adressbuch
 from core.extractor import is_valid_email
+from core.fehlertexte import meldung
 
 SPALTEN = ["Versicherer", "E-Mail", "Zuletzt verwendet", "Anzahl"]
 
@@ -92,7 +93,7 @@ class AdressbuchDialog(QDialog):
             try:
                 self.buch.aendern(eid, name, email)
             except ValueError as e:
-                fehler = str(e)
+                fehler = meldung(e)
         if fehler:
             QMessageBox.warning(self, "Nicht gespeichert", fehler)
             self.table.blockSignals(True)
@@ -108,7 +109,7 @@ class AdressbuchDialog(QDialog):
         try:
             self.buch.hinzufuegen(*dlg.werte())
         except ValueError as e:
-            QMessageBox.warning(self, "Nicht gespeichert", str(e))
+            QMessageBox.warning(self, "Nicht gespeichert", meldung(e))
         self.laden()
 
     def _loeschen(self):

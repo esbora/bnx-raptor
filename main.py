@@ -43,6 +43,8 @@ def main() -> int:
         PdfEditor(None, pfade[0] if pfade else None, sprachen=tuple(cfg.get("ocr_sprachen", SPRACHEN))).exec()
         return 0
     ordner = data_dir(cfg)
+    from core.fehlertexte import protokoll_einrichten
+    protokoll_einrichten(ordner)        # nur Fehlerdetails, keine Dokumentinhalte
     journal = Journal(ordner / "verlauf.sqlite")
     ctx = AppContext(cfg, KanzleiStore(ordner), journal)
     workflows = [wf(ctx) for wf in ALL_WORKFLOWS]

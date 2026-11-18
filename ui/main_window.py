@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from core.extractor import is_valid_email
 from core.journal import ARTEN, Journal
 from core.update import ReleaseInfo, ist_neuer, neueste_release
+from core.fehlertexte import meldung
 from version import __version__
 from workflows.base import AppContext, Field, Workflow
 
@@ -641,6 +642,7 @@ class MainWindow(QMainWindow):
         split.addWidget(links)
         self.word_ed = WordBearbeiter(lambda fn, frist: im_hintergrund(fn, frist),
                                       float(self.cfg.get("word_zeitlimit_sekunden", 90)))
+        self.word_ed.kopie_erstellt.connect(self._kopie_erstellt)
         split.addWidget(self.word_ed)
         split.setStretchFactor(1, 1)
         split.setSizes([250, 900])
@@ -681,17 +683,23 @@ class MainWindow(QMainWindow):
         finally:
             self.b_run.setEnabled(True)
 
+    def _kopie_erstellt(self, original, kopie):
+        """„In Word bearbeiten“ hat eine Kopie angelegt: Liste zeigt und verwendet ab jetzt die Kopie."""
+        it = self.files.currentItem()
+        if it is not None and Path(it.data(Qt.UserRole)) == Path(original):
+            it.setData(Qt.UserRole, str(kopie))
+            it.setText(Path(kopie).name)
+            it.setToolTip(f"{kopie}\nKopie von {Path(original).name} (Original unverändert)")
+        self.ctx.archiv.erfassen(Path(kopie), rolle="bearbeitet", quelle=Path(original),
+                                 notiz=f"in Word bearbeitete Kopie von {Path(original).name}")
+
     def _schreiben_entfernen(self):
         it = self.files.currentItem()
         if it is None or not self.word_ed.schliessen_ok():
             return
         self.files.takeItem(self.files.row(it))
         if not self.files.count():
-            self.word_ed.pfad = None
-            self.word_ed.absaetze = []
-            self.word_ed.text.clear()
-            self.word_ed.vorschau.clear()
-            self.word_ed.l_datei.setText("Kein Dokument ausgewählt")
+            self.word_ed.leeren()
 
     def _pdf_als_word(self, pdf: Path) -> Path | None:
         """PDF → Word-Arbeitskopie neben dem PDF (vorhandene wird wiederverwendet), im Archiv verknüpft."""
@@ -718,7 +726,7 @@ class MainWindow(QMainWindow):
             ziel, art = wd.pdf_zu_word(pdf, wd.arbeitskopie_name(pdf), ocr=ocr if pe.tesseract_ordner() else None)
         except Exception as e:  # noqa: BLE001
             QGuiApplication.restoreOverrideCursor()
-            QMessageBox.warning(self, "PDF → Word", f"{pdf.name}:\n{e}")
+            QMessageBox.warning(self, "PDF → Word", f"{pdf.name}:\n{meldung(e)}")
             return None
         QGuiApplication.restoreOverrideCursor()
         self.ctx.archiv.erfassen(pdf)
@@ -766,8 +774,9 @@ class MainWindow(QMainWindow):
         if not paths:
             theme.status_setzen(self.status, "warn", "Keine Dokumente in der Liste.")
             return
-        if self.word_ed.geaendert and not self.word_ed.speichern():      # letzter Stand wird verwendet
-            theme.status_setzen(self.status, "fehler", "Nicht gestartet: Änderungen konnten nicht gespeichert werden.")
+        if self.word_ed.in_bearbeitung:                 # Word noch offen → zuerst dort speichern und schließen
+            theme.status_setzen(self.status, "warn", "Das Schreiben ist noch in Word geöffnet. Bitte in Word speichern "
+                                "und schließen – danach „Starten“.")
             return
         zeit = float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90))
         # Word işi arka planda: pencere tepki vermeye devam eder, takılırsa süre sonunda biter
@@ -829,7 +838,7 @@ class MainWindow(QMainWindow):
             except Exception as e:  # noqa: BLE001
                 self.journal.add(wf.id, str(p), status="fehler",
                                  meldung=f"{e}\n{traceback.format_exc()}")
-                QMessageBox.critical(self, "Fehler", f"{p.name}:\n{e}")
+                QMessageBox.critical(self, "Fehler", f"{p.name}:\n{meldung(e)}")
         return done
 
     # --- Geçmiş sekmesi ---

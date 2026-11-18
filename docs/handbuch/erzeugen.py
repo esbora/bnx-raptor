@@ -1,4 +1,4 @@
-"""Erzeugt das deutsche Benutzerhandbuch: docs/Benutzerhandbuch_BnX-Raptor_0.4.0_DE.pdf
+"""Erzeugt das deutsche Benutzerhandbuch: docs/Benutzerhandbuch_BnX-Raptor_0.4.1_DE.pdf
 
 Bilder: docs/handbuch/bilder/ – Bildschirmfotos des echten Programms mit fiktiven Daten (Testakte Mustermann,
 „Kanzlei Muster & Partner (fiktiv)“). Aufruf: python docs/handbuch/erzeugen.py
@@ -15,9 +15,9 @@ import pymupdf
 HIER = Path(__file__).resolve().parent
 KOK = HIER.parent.parent
 BILDER = HIER / "bilder"
-ZIEL = KOK / "docs" / "Benutzerhandbuch_BnX-Raptor_0.4.0_DE.pdf"
+ZIEL = KOK / "docs" / "Benutzerhandbuch_BnX-Raptor_0.4.1_DE.pdf"
 H = json.loads((KOK / "docs" / "CRA" / "hersteller.json").read_text(encoding="utf-8"))
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 CSS = """
 body { font-family: sans-serif; font-size: 10pt; line-height: 1.38; color: #283040; }
@@ -117,16 +117,17 @@ werden automatisch gespeichert. Rückmeldungen erscheinen immer mit Farbe <b>und
 <h2>3. Schreiben an eine Versicherung: PDF und Outlook-Entwurf</h2>
 <ol><li>Auf der Startseite {ui('Versicherungsschreiben vorbereiten')} → {ui('Schreiben wählen…')} – Word- oder PDF-Datei –
 oder die Datei in die Liste links ziehen.</li>
-<li>Das Schreiben erscheint im Programm: links der Text (ein Absatz je Zeile, Enter = neuer Absatz), rechts die
-Vorschau so, wie Word es druckt. Änderungen mit {ui('Speichern')} (<span class='t'>Strg+S</span>) – Briefkopf und
-Formatierung bleiben erhalten.</li>
+<li>Das Schreiben erscheint im Programm als Vorschau, so wie Word es druckt. Ändern mit {ui('In Word bearbeiten')}:
+BnX-Raptor prüft zuerst, ob das Dokument geschützt ist, legt eine datierte <b>Kopie</b> an (z. B.
+<span class='t'>Schreiben_2026-11-18.docx</span>) und öffnet sie im normalen Word. Dort bearbeiten, speichern und schließen –
+die Vorschau aktualisiert sich dann selbst, und die Liste verwendet ab jetzt die Kopie. Das Original bleibt unverändert.</li>
 <li><b>PDF statt Word:</b> BnX-Raptor erzeugt daneben eine Word-Arbeitskopie <span class='t'>„Name (Word).docx“</span>
 (Textebene des PDF bzw. Texterkennung bei Scans). Das Layout kann vereinfacht sein; der Reiter {ui('Original-PDF')}
 zeigt das Original zum Vergleich. Arbeitskopie und PDF bleiben im Dokumentenarchiv verknüpft.</li>
-<li>{ui('Starten')} (<span class='t'>Alt+S</span>) speichert offene Änderungen automatisch und verwendet den zuletzt
-gespeicherten Text.</li>
+<li>{ui('Starten')} (<span class='t'>Alt+S</span>) verwendet die in Word gespeicherte Fassung. Ist das Dokument noch in
+Word geöffnet, bitte dort zuerst speichern und schließen.</li>
 <li>Im Fenster {ui('Prüfen – …')} die gefundenen Werte kontrollieren. Neben jedem Feld steht, woher der Wert stammt.</li></ol>
-{bild('02_hauptfenster_schreiben.png', 'Versicherungsschreiben: Text links bearbeiten, Vorschau rechts (fiktives Schreiben).', 470)}
+{bild('02_hauptfenster_schreiben.png', 'Versicherungsschreiben: Vorschau und „In Word bearbeiten“ (fiktives Schreiben).', 470)}
 {tab(['Feld', 'Inhalt'], [
     [ui('Versicherer'), 'Name der Versicherung aus dem Schreiben. Ändern Sie ihn, schlägt BnX-Raptor passende Adressen vor.'],
     [ui('Empfänger-E-Mail'), 'Adresse der Versicherung. Gibt es mehrere Möglichkeiten, bitte aus der Liste wählen.'],
@@ -215,12 +216,15 @@ sind das bisherige Versicherer-Adressbuch – es gibt nur eine Stelle dafür.</l
 <li><b>{ui('Akten')}:</b> {ui('Neue Akte')}; Felder Aktenzeichen, Mandant, Versicherung, Versicherungsnummer und Schaden-Nr.
 {ui('Aktenordner öffnen')} zeigt den Ordner im Explorer; {ui('Dateien aus Ordner hinzufügen…')} fügt Dateien der Akte hinzu –
 sie erscheinen sofort im Verlauf.</li>
-<li><b>Verlauf:</b> Doppelklick öffnet Word-Dateien zur Bearbeitung im Programm und PDFs im PDF-Editor. Nach dem Speichern
-zeigt derselbe Eintrag „✎ bearbeitet …“, rechts die aktuelle Vorschau.</li>
+<li><b>Verlauf:</b> Doppelklick öffnet PDFs im PDF-Editor (nach dem Speichern zeigt derselbe Eintrag „✎ bearbeitet …“) und
+Word-Dateien in der Vorschau mit {ui('In Word bearbeiten')}: Die datierte Kopie wird im echten Word bearbeitet und als neuer
+Eintrag in den Verlauf der Akte übernommen; das Original bleibt unverändert.</li>
+<li><b>{ui('Dokumentenordner öffnen')}</b> (in {ui('Mandanten')} und {ui('Versicherungen')}): öffnet die Ordner der bisherigen
+Dokumente aus allen verknüpften Akten – bei mehreren Ordnern mit kurzer Auswahl.</li>
 <li><b>Dokumentenarchiv:</b> Bearbeitete und erstellte Dateien werden mit Akte, Typ, Datum und Herkunft gemerkt.
 {ui('📄 Dokumente ohne Akte')}: markieren → {ui('Akte zuordnen…')}.</li></ul>
 {bild('16_akten.png', 'Akte mit Mandant, Versicherung, Nummern und Verlauf (fiktiv).', 470)}
-{bild('19_word_bearbeiten.png', 'Word-Datei aus dem Verlauf im Programm bearbeiten.', 420)}
+{bild('19_word_bearbeiten.png', 'Word-Datei aus dem Verlauf: Vorschau und „In Word bearbeiten“ (Kopie).', 420)}
 {bild('17_mandanten.png', 'Mandanten mit ihren Akten.', 420)}
 {bild('04_versicherungen.png', 'Versicherungen mit E-Mail-Adressen (= Versicherer-Adressbuch).', 420)}
 
@@ -233,6 +237,8 @@ zeigt derselbe Eintrag „✎ bearbeitet …“, rechts die aktuelle Vorschau.</
     ['OCR-Text ist fehlerhaft', 'Scanqualität prüfen (300 dpi, gerade, kontrastreich). Unsichere Wörter stehen unter „Hinweise / zu prüfen“. Schräg gescannte Seiten werden nicht begradigt.'],
     ['Anlage kann nicht geöffnet werden', '„Original übernommen – Vorschau nicht verfügbar“: Die Datei kommt unverändert ins Paket, aber nicht ins Gesamt-PDF. Original ggf. neu anfordern.'],
     ['Outlook-Entwurf erscheint nicht', 'Nur das klassische Outlook wird gesteuert; sonst entsteht eine .eml-Datei. Outlook einmal normal starten und erneut versuchen.'],
+    ['Word-Dokument ist geschützt', 'Vor dem Bearbeiten meldet BnX-Raptor Bearbeitungseinschränkungen und gesperrte Inhaltssteuerelemente. In Word unter „Überprüfen → Bearbeitung einschränken“ den Schutz aufheben bzw. die Vorlage freigeben lassen.'],
+    ['Fehlermeldung von Word/Outlook', 'Die Meldung nennt die Ursache in Klartext. Technische Einzelheiten für den Support stehen in <span class="t">bnx-raptor.log</span> im Datenordner (ohne Dokumentinhalte).'],
     ['Windows-Warnung beim Start', 'SmartScreen warnt bei unsignierten Programmen. Prüfsumme vergleichen (Regeln der Kanzlei-IT beachten).'],
     ['Texterkennung fehlt', 'Ordner <span class="t">ocr</span> neben <span class="t">BnX-Raptor.exe</span> fehlt – ZIP vollständig neu entpacken.']], [30, 70])}
 
@@ -240,7 +246,7 @@ zeigt derselbe Eintrag „✎ bearbeitet …“, rechts die aktuelle Vorschau.</
 <ul><li><b>Neues Outlook</b> wurde nicht geprüft; unterstützt wird das klassische Outlook (sonst .eml-Datei).</li>
 <li><b>Bearbeitete Anlagen gelten nicht automatisch als PDF/A.</b> PDF/A-Einstellung gilt nur für PDFs, die Word erzeugt.
 Eine Prüfung mit einem unabhängigen PDF/A-Prüfprogramm wurde nicht durchgeführt.</li>
-<li>PDF → Word: Das Layout wird vereinfacht (Absätze); Kopf-/Fußzeilen von Word-Dateien werden im Programm nicht bearbeitet.</li>
+<li>PDF → Word: Das Layout wird vereinfacht (Absätze). Word-Dateien werden im echten Word bearbeitet (als Kopie).</li>
 <li>Keine Schräglagenkorrektur bei Scans; Texterkennung nur Deutsch, Türkisch, Englisch.</li>
 <li>Keine eigene Verschlüsselung der gespeicherten Daten – bitte Laufwerksverschlüsselung (z. B. BitLocker) und eigene
 Windows-Konten verwenden. Löschen: Programmordner und Datenordner (<span class='t'>%APPDATA%\\BnX-Raptor</span>) entfernen.</li>
@@ -249,7 +255,7 @@ Windows-Konten verwenden. Löschen: Programmordner und Datenordner (<span class=
 <h2>9. Tastenkürzel</h2>
 {tab(['Bereich', 'Kürzel'], [
     ['Navigation', '<span class="t">Strg+1</span> Start · <span class="t">Strg+2</span> Anlagen · <span class="t">Strg+3</span> PDF-Editor · <span class="t">Strg+4</span> Akten · <span class="t">Strg+5</span> Mandanten · <span class="t">Strg+6</span> Versicherungen · <span class="t">Strg+7</span> Einstellungen'],
-    ['Versicherungsschreiben', '<span class="t">Strg+S</span> Speichern · <span class="t">Alt+S</span> Starten'],
+    ['Versicherungsschreiben', '<span class="t">Alt+S</span> Starten'],
     ['Anlagen-Assistent', '<span class="t">Alt+H</span> Dateien hinzufügen · <span class="t">Alt+L</span> Liste · <span class="t">Alt+↑/↓</span> verschieben · <span class="t">F2</span> Bezeichnung · <span class="t">Entf</span> entfernen · <span class="t">Alt+V</span> Vorschau · Doppelklick Seite bearbeiten · <span class="t">Alt+D</span> drehen · <span class="t">Alt+Ö</span> Seite löschen · <span class="t">Alt+G</span> eigene Anlage · <span class="t">Alt+T</span> OCR · <span class="t">Alt+E</span> PDF-Editor · <span class="t">Alt+R</span> Ausrichtung · <span class="t">Alt+P</span> Paket erstellen · <span class="t">Alt+O</span> Outlook · <span class="t">Alt+S</span> Hauptdokument · <span class="t">Alt+N</span> Neu'],
     ['PDF-Editor', '<span class="t">Strg+S</span> Speichern · <span class="t">Strg+Umschalt+S</span> Speichern unter · <span class="t">Strg+Enter</span> OK – Änderungen speichern · <span class="t">Strg+O</span> Öffnen · <span class="t">Strg+Z/Y</span> Rückgängig/Wiederholen · <span class="t">Strg+F</span> Suchen · <span class="t">F3</span> Weiter · <span class="t">Strg++/−</span> Zoom · <span class="t">Alt+M</span> vormerken · <span class="t">Alt+A</span> Schwärzungen anwenden']], [24, 76])}
 

@@ -1,21 +1,29 @@
-"""Word-Dokument im Programm bearbeiten (0.4.1, „Versicherungsschreiben vorbereiten“ und Akten-Verlauf).
+"""Word-Dokumente bearbeiten (0.4.1): im echten, sichtbaren Word – nie per Textersetzung.
 
-Bearbeitet wird absatzweise über Word selbst (COM): nur der geänderte Teil eines Absatzes wird ersetzt,
-Briefkopf, Formatierung, Kopf-/Fußzeilen und Inhaltssteuerelemente bleiben erhalten. Gespeichert wird
-sicher: Kopie bearbeiten → prüfen → Original ersetzen (gesperrt/extern geändert → nichts überschrieben).
+Bis 0.4.0 wurde der Text im Programm bearbeitet und absatzweise per COM zurückgeschrieben. Das scheiterte an
+gesperrten Bereichen („Bereich kann nicht gelöscht werden“) und konnte Formatierung verlieren → entfernt.
+Jetzt: „In Word bearbeiten“ legt eine datierte KOPIE an (11_Vollmacht_2026-11-18.docx), öffnet sie im
+sichtbaren Word und beobachtet nur diese eine Datei; nach dem Schließen wird die Vorschau neu erzeugt.
+Vorher wird geprüft, ob das Dokument geschützt ist oder gesperrte Inhaltssteuerelemente hat.
 
-PDF → Word: Textebene (digital) bzw. OCR (Scan) → Absätze in ein neues Word-Dokument. Die Arbeitskopie liegt neben dem PDF und ist im
-Dokumentenarchiv mit dem PDF verknüpft.
+PDF → Word: Textebene (digital) bzw. OCR (Scan) → Absätze in ein neues Word-Dokument.
 """
 from __future__ import annotations
 
-import difflib
 import hashlib
+import re
 import shutil
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from core.word_service import WordError, WordService
+
+# Word-Konstanten
+WD_KEIN_SCHUTZ = -1
+SCHUTZARTEN = {0: "nur Überarbeitungen (Änderungen nachverfolgen)", 1: "nur Kommentare",
+               2: "nur Formularfelder ausfüllen", 3: "nur Lesen"}
+
 
 def fingerabdruck(pfad: Path) -> str:
     try:
@@ -24,107 +32,87 @@ def fingerabdruck(pfad: Path) -> str:
         return "?"
 
 
-def _rein(text: str) -> str:
-    return text.rstrip("\r\x07").replace("\x0b", "\n").replace("\x07", "")
+# ---------------------------------------------------------------- Kopie statt Original
+_KOPIE = re.compile(r"_\d{4}-\d{2}-\d{2}(_\d+)?$")
 
 
-def absaetze_lesen(w: WordService, pfad: Path) -> list[str]:
-    """Absätze des Haupttextes (Tabellenzellen eingeschlossen) – in einer offenen WordService-Sitzung."""
+def ist_bnx_kopie(pfad: Path) -> bool:
+    """Von BnX-Raptor angelegte Bearbeitungskopie (…_JJJJ-MM-TT[_n].docx) oder Word-Arbeitskopie eines PDF
+    („… (Word).docx“) – diese werden direkt bearbeitet, alle anderen Dateien nur als Kopie."""
+    stamm = Path(pfad).stem
+    return bool(_KOPIE.search(stamm)) or bool(re.search(r" \(Word( \d+)?\)$", stamm))
+
+
+def kopie_name(original: Path, heute: date | None = None) -> Path:
+    """11_Vollmacht.docx → 11_Vollmacht_2026-11-18.docx (vorhanden → _2, _3 …). Nie das Original."""
+    original = Path(original)
+    tag = (heute or date.today()).isoformat()
+    ziel = original.with_name(f"{original.stem}_{tag}{original.suffix}")
+    i = 2
+    while ziel.exists():
+        ziel = original.with_name(f"{original.stem}_{tag}_{i}{original.suffix}")
+        i += 1
+    return ziel
+
+
+def bearbeitungskopie(original: Path, heute: date | None = None) -> Path:
+    ziel = kopie_name(original, heute)
+    shutil.copy2(original, ziel)
+    return ziel
+
+
+def wird_bearbeitet(pfad: Path) -> bool:
+    """Ist die Datei gerade in Word geöffnet? Nur diese eine Datei wird geprüft (Sperre bzw. „~$“-Besitzerdatei)
+    – andere Word-Dokumente werden nicht angefasst."""
+    pfad = Path(pfad)
+    besitzer = pfad.with_name("~$" + pfad.name[2:]) if len(pfad.name) > 2 else None
+    if besitzer is not None and besitzer.exists():
+        return True
+    try:
+        with open(pfad, "r+b"):
+            return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------- Schutz prüfen (vor dem Bearbeiten)
+def schutz_texte(schutzart: int, steuerelemente: list[tuple[str, bool, bool]], schreibgeschuetzt: bool = False) -> list[str]:
+    """Verständliche Hinweise. steuerelemente: (Name, Inhalt gesperrt, Steuerelement nicht löschbar)."""
+    out = []
+    if schreibgeschuetzt:
+        out.append("Die Datei ist schreibgeschützt (Dateieigenschaft „Schreibgeschützt“).")
+    if schutzart != WD_KEIN_SCHUTZ:
+        out.append(f"Das Dokument hat eine Bearbeitungseinschränkung: {SCHUTZARTEN.get(schutzart, 'eingeschränkt')}. "
+                   "Aufheben in Word unter „Überprüfen → Bearbeitung einschränken → Schutz aufheben“.")
+    gesperrt = [n or "ohne Namen" for n, inhalt, _ in steuerelemente if inhalt]
+    nicht_loeschbar = [n or "ohne Namen" for n, inhalt, element in steuerelemente if element and not inhalt]
+    if gesperrt:
+        out.append(f"{len(gesperrt)} Inhaltssteuerelement(e) sind gegen Änderungen gesperrt ({', '.join(gesperrt[:4])}"
+                   f"{' …' if len(gesperrt) > 4 else ''}). Deren Text lässt sich nicht ändern.")
+    if nicht_loeschbar:
+        out.append(f"{len(nicht_loeschbar)} Inhaltssteuerelement(e) können nicht gelöscht werden "
+                   f"({', '.join(nicht_loeschbar[:4])}{' …' if len(nicht_loeschbar) > 4 else ''}).")
+    return out
+
+
+def schutz_pruefen(w: WordService, pfad: Path) -> list[str]:
+    """Liest Schutzart und Inhaltssteuerelemente im eigenen, unsichtbaren Word (nur lesend)."""
+    import os
+    import stat
+    schreibgeschuetzt = not os.stat(pfad).st_mode & stat.S_IWRITE
     with w._waechter(pfad):
         doc = w._open(pfad)
         try:
-            return [_rein(p.Range.Text) for p in doc.Paragraphs]
+            art = int(doc.ProtectionType)
+            ccs = []
+            for cc in doc.ContentControls:
+                ccs.append(((cc.Title or cc.Tag or "").strip(), bool(cc.LockContents), bool(cc.LockContentControl)))
         finally:
             if not w._abgelaufen:
                 doc.Close(SaveChanges=0)
-
-
-def _absatz_setzen(doc, par, alt: str, neu: str) -> None:
-    """Nur den geänderten Mittelteil ersetzen (gemeinsamer Anfang/Ende bleiben samt Formatierung)."""
-    vorne = 0
-    while vorne < min(len(alt), len(neu)) and alt[vorne] == neu[vorne]:
-        vorne += 1
-    hinten = 0
-    while hinten < min(len(alt), len(neu)) - vorne and alt[-1 - hinten] == neu[-1 - hinten]:
-        hinten += 1
-    r = par.Range
-    start = r.Start + vorne
-    ende = r.Start + len(alt) - hinten
-    doc.Range(start, ende).Text = neu[vorne:len(neu) - hinten].replace("\n", "\x0b")
-    if _rein(par.Range.Text) != neu:            # z. B. Felder: Zeichenpositionen weichen ab → ganzen Absatz setzen
-        r = par.Range
-        inhalt = doc.Range(r.Start, r.End - 1)
-        inhalt.Text = neu.replace("\n", "\x0b")
-
-
-def aenderungen_anwenden(doc, alt: list[str], neu: list[str]) -> None:
-    """Absatzliste alt → neu in einem geöffneten Word-Dokument (von hinten nach vorne, Indizes bleiben gültig)."""
-    sm = difflib.SequenceMatcher(a=alt, b=neu, autojunk=False)
-    for tag, i1, i2, j1, j2 in reversed(sm.get_opcodes()):
-        if tag == "equal":
-            continue
-        if tag == "replace" and i2 - i1 == j2 - j1:
-            for k in reversed(range(i2 - i1)):
-                _absatz_setzen(doc, doc.Paragraphs(i1 + k + 1), alt[i1 + k], neu[j1 + k])
-        elif tag in ("replace", "delete"):
-            von = doc.Paragraphs(i1 + 1).Range.Start
-            bis = doc.Paragraphs(i2).Range.End
-            if tag == "delete":
-                if i2 == len(alt) and i1 > 0:                  # letzter Absatz: Marke davor mitnehmen
-                    von = doc.Paragraphs(i1).Range.End - 1
-                    doc.Range(von, bis - 1).Delete()
-                else:
-                    doc.Range(von, bis).Delete()
-            else:
-                doc.Range(von, bis - 1).Text = "\r".join(x.replace("\n", "\x0b") for x in neu[j1:j2])
-        elif tag == "insert":
-            text = "\r".join(x.replace("\n", "\x0b") for x in neu[j1:j2])
-            if i1 < len(alt):
-                doc.Paragraphs(i1 + 1).Range.InsertBefore(text + "\r")
-            else:
-                doc.Content.InsertAfter("\r" + text)
-
-
-def speichern(w: WordService, pfad: Path, alt: list[str], neu: list[str], basis: str) -> list[str]:
-    """Änderungen sicher in `pfad` speichern. Gibt die tatsächlich gespeicherten Absätze zurück.
-
-    basis = Fingerabdruck beim Öffnen; weicht die Datei inzwischen ab → WordError, nichts überschrieben.
-    """
-    pfad = Path(pfad)
-    if fingerabdruck(pfad) != basis:
-        raise WordError(f"{pfad.name} wurde während der Bearbeitung von einem anderen Programm geändert – "
-                        "nicht überschrieben. Bitte neu laden.")
-    from core import pdf_engine as pe
-    td = Path(tempfile.mkdtemp(prefix="bnx-word-"))
-    try:
-        kopie = td / pfad.name
-        shutil.copyfile(pfad, kopie)
-        with w._waechter(kopie):
-            doc = w.app.Documents.Open(str(kopie), ReadOnly=False, AddToRecentFiles=False, Visible=False)
-            try:
-                aenderungen_anwenden(doc, alt, neu)
-                ergebnis = [_rein(p.Range.Text) for p in doc.Paragraphs]
-                doc.Save()
-            finally:
-                if not w._abgelaufen:
-                    doc.Close(SaveChanges=0)
-        if ergebnis != neu:
-            raise WordError("Word hat den Text nicht vollständig übernommen – nichts gespeichert. "
-                            "Bitte die Datei direkt in Word bearbeiten.")
-        if fingerabdruck(pfad) != basis:                 # während Word lief geändert?
-            raise WordError(f"{pfad.name} wurde zwischenzeitlich geändert – nicht überschrieben.")
-        tmp = pe.temp_neben(pfad)
-        shutil.copyfile(kopie, tmp)
-        try:
-            pe.ersetzen(tmp, pfad)
-        except pe.PdfFehler as e:
-            raise WordError(str(e)) from e
-        finally:
-            if tmp.exists():
-                tmp.unlink()
-        return ergebnis
-    finally:
-        shutil.rmtree(td, ignore_errors=True)
+    return schutz_texte(art, ccs, schreibgeschuetzt)
 
 
 def vorschau_pdf(w: WordService, pfad: Path, ziel: Path) -> Path:

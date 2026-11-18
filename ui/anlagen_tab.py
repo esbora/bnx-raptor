@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogBut
 from core import anlagen as an
 from core import pdf_engine as pe
 from core.mail_service import MailDraft, MailError
+from core.fehlertexte import meldung
 
 from . import theme
 from .pdf_ui import AnhangVorschau, im_thread, qpixmap
@@ -629,7 +630,7 @@ class AnlagenTab(QWidget):
                 i = self.liste.indexOfTopLevelItem(self.liste.currentItem())
                 self.liste.insertTopLevelItem(i + 1, self._item(neu))
         except pe.PdfFehler as ex:
-            QMessageBox.warning(self, "Seiten", str(ex))
+            QMessageBox.warning(self, "Seiten", meldung(ex))
             return
         self._geaendert()
 
@@ -730,7 +731,7 @@ class AnlagenTab(QWidget):
             except Exception as ex:  # noqa: BLE001
                 QGuiApplication.restoreOverrideCursor()
                 self.setEnabled(True)
-                self.ctx.journal.add("anlagen", str(s.quelle if s else ordner), status="fehler", meldung=str(ex),
+                self.ctx.journal.add("anlagen", str(s.quelle if s else ordner), status="fehler", meldung=meldung(ex),
                                      art="anlagen")
                 box = QMessageBox(QMessageBox.Critical, "Paket nicht erstellt",
                                   "Das Paket wurde NICHT erstellt. Es wurden keine Dateien abgelegt; vorhandene "
@@ -740,7 +741,7 @@ class AnlagenTab(QWidget):
                 box.addButton("Schließen", QMessageBox.RejectRole)
                 box.setDefaultButton(b_neu)
                 box.exec()
-                theme.status_setzen(self.status, "fehler", "Paket nicht erstellt – " + str(ex).splitlines()[0])
+                theme.status_setzen(self.status, "fehler", "Paket nicht erstellt – " + meldung(ex).splitlines()[0])
                 if box.clickedButton() is b_neu:
                     continue
                 return
@@ -805,8 +806,8 @@ class AnlagenTab(QWidget):
                 html_body=an.mail_text(gewaehlt), attachments=[p for p, _ in auswahl]),
                 self.paket.ordner, anhaenge_pruefen=True)
         except MailError as ex:
-            self.ctx.journal.add("anlagen", str(self.paket.ordner), status="fehler", meldung=str(ex), art="entwurf")
-            QMessageBox.critical(self, "Entwurf", str(ex))
+            self.ctx.journal.add("anlagen", str(self.paket.ordner), status="fehler", meldung=meldung(ex), art="entwurf")
+            QMessageBox.critical(self, "Entwurf", meldung(ex))
             return
         self.ctx.journal.add("anlagen", str(self.paket.ordner), meldung=msg, art="entwurf")
         self.status.setText(f"✓ {msg}. Die E-Mail wurde nicht gesendet.")

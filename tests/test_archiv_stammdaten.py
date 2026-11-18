@@ -101,3 +101,21 @@ def test_versicherung_standard_email_und_entfernen(db):
     assert st2.versicherung(vid)["standard_email"] == "b@example.com"
     st2.email_entfernen(vid, "b@example.com")
     assert st2.versicherung(vid)["standard_email"] == "" and st2.versicherung(vid)["emails"] == ["a@example.com"]
+
+
+def test_dokumentordner_mandant_und_versicherung(db, tmp_path):
+    j = Journal(db)
+    st = Stammdaten(j.con, Adressbuch(j.con))
+    a1, a2, leer = tmp_path / "AkteA", tmp_path / "AkteB" / "Eingang", tmp_path / "gibtsnicht"
+    a1.mkdir(); a2.mkdir(parents=True)
+    m = st.mandant_speichern(None, name="Erika")
+    v = st.versicherung_speichern(None, name="Alpha AG")
+    st.akte_anlegen("A", mandant_id=m, versicherung_id=v, ordner=str(a1))
+    st.akte_anlegen("B", mandant_id=m)
+    j.add("akte", str(a2 / "Antwort.pdf"), "", "", "B", art="eingang")
+    j.add("akte", str(leer / "x.pdf"), "", "", "B", art="dokument")
+    Archiv(j.con).erfassen(a1 / "Brief.docx", akte="A")
+    ordner = st.dokumentordner(mandant_id=m)
+    assert {o for o, _ in ordner} == {str(a1), str(a2)}                  # nur vorhandene, ohne Doppelte
+    assert st.dokumentordner(versicherung_id=v) == [(str(a1), "A")]
+    assert st.dokumentordner(mandant_id=st.mandant_speichern(None, name="Neu")) == []
