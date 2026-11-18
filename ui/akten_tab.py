@@ -44,6 +44,40 @@ def oeffnen(pfad: str):
         os.startfile(pfad)  # type: ignore[attr-defined]
 
 
+class KontaktZeilen(QLabel):
+    """Kompakte Kontaktangaben: Adresse · Telefon · E-Mail je in einer Zeile; zu lange Zeilen mit „…“,
+    vollständiger Text im Tooltip. Feste Höhe für drei Zeilen → nichts wird abgeschnitten."""
+
+    def __init__(self):
+        super().__init__()
+        self._zeilen: list[str] = []
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.setFixedHeight(self.fontMetrics().lineSpacing() * 3 + 4)
+        self.setMinimumWidth(60)
+
+    def setText(self, text: str):
+        self._zeilen = [z for z in text.split("\n") if z][:3]
+        self.setToolTip(text)
+        self._setzen()
+
+    def _setzen(self):
+        fm = self.fontMetrics()
+        b = max(self.width() - 4, 40)
+        super().setText("\n".join(fm.elidedText(z, Qt.ElideRight, b) for z in self._zeilen))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._setzen()
+
+    def sizeHint(self):
+        s = super().sizeHint()
+        s.setWidth(60)
+        return s
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+
 class ImportDialog(QDialog):
     """Outlook'ta bulunan cevapları onay kutularıyla listeler."""
 
@@ -134,11 +168,8 @@ class AktenTab(QWidget):
         self.f_versicherer.setEditable(True)
         self.f_versicherer.setInsertPolicy(QComboBox.NoInsert)
         self.f_notiz = QLineEdit()
-        self.l_mandant_kontakt = theme.rolle(QLabel(""), "gedimmt")
-        self.l_vers_kontakt = theme.rolle(QLabel(""), "gedimmt")
-        for l_ in (self.l_mandant_kontakt, self.l_vers_kontakt):
-            l_.setWordWrap(True)
-            l_.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.l_mandant_kontakt = theme.rolle(KontaktZeilen(), "gedimmt")
+        self.l_vers_kontakt = theme.rolle(KontaktZeilen(), "gedimmt")
         self.l_mandant_kontakt.setAccessibleName("Kontakt Mandant")
         self.l_vers_kontakt.setAccessibleName("Kontakt Versicherung")
         for w, n in ((self.f_aktenzeichen, "Aktenzeichen"), (self.f_mandant, "Mandant"), (self.f_versicherung,
@@ -302,7 +333,7 @@ class AktenTab(QWidget):
         mails = emails if emails is not None else ([d["email"]] if d.get("email") else [])
         if mails:
             teile.append(", ".join(mails))
-        return " · ".join(teile) or "Keine Kontaktdaten gespeichert"
+        return "\n".join(teile) or "Keine Kontaktdaten gespeichert"
 
     def _mandant_daten(self) -> dict | None:
         mid = self.f_mandant.currentData()
