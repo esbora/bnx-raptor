@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
+    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QMessageBox,
     QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -120,8 +120,10 @@ class AktenTab(QWidget):
         self.titel = theme.ueberschrift("Keine Akte ausgewählt", "h2")
         rl.addWidget(self.titel)
         self.stamm = theme.karte(QFrame(), schatten=False)
-        fl = QFormLayout(self.stamm)
-        fl.setContentsMargins(14, 10, 14, 10)
+        fl = QGridLayout(self.stamm)                 # zweispaltig: mehr Platz für den Verlauf
+        fl.setContentsMargins(14, 8, 14, 8)
+        fl.setHorizontalSpacing(10)
+        fl.setVerticalSpacing(6)
         self.f_aktenzeichen = QLineEdit()
         self.f_mandant = QComboBox()
         self.f_versicherung = QComboBox()
@@ -135,19 +137,19 @@ class AktenTab(QWidget):
                      (self.f_mandant_email, "E-Mail Mandant"), (self.f_versicherer, "E-Mail Versicherung"),
                      (self.f_notiz, "Notiz")):
             w.setAccessibleName(n)
-        zeile1 = QHBoxLayout()
-        zeile1.addWidget(self.f_vnr, 1)
-        zeile1.addWidget(QLabel("Schaden-Nr.:"))
-        zeile1.addWidget(self.f_snr, 1)
-        fl.addRow("Aktenzeichen:", self.f_aktenzeichen)
-        fl.addRow("Mandant:", self.f_mandant)
-        fl.addRow("Versicherung:", self.f_versicherung)
-        fl.addRow("Versicherungsnr.:", zeile1)
-        fl.addRow("E-Mail Mandant:", self.f_mandant_email)
-        fl.addRow("E-Mail Versicherung:", self.f_versicherer)
-        fl.addRow("Notiz:", self.f_notiz)
+        for r, (l1, w1, l2, w2) in enumerate((("Aktenzeichen:", self.f_aktenzeichen, "Notiz:", self.f_notiz),
+                                              ("Mandant:", self.f_mandant, "Versicherung:", self.f_versicherung),
+                                              ("Versicherungsnr.:", self.f_vnr, "Schaden-Nr.:", self.f_snr),
+                                              ("E-Mail Mandant:", self.f_mandant_email, "E-Mail Versicherung:",
+                                               self.f_versicherer))):
+            fl.addWidget(QLabel(l1), r, 0)
+            fl.addWidget(w1, r, 1)
+            fl.addWidget(QLabel(l2), r, 2)
+            fl.addWidget(w2, r, 3)
+        fl.setColumnStretch(1, 1)
+        fl.setColumnStretch(3, 1)
         self.l_gespeichert = theme.rolle(QLabel(""), "gedimmt")
-        fl.addRow("", self.l_gespeichert)
+        fl.addWidget(self.l_gespeichert, 4, 0, 1, 4)
         for w in (self.f_aktenzeichen, self.f_vnr, self.f_snr, self.f_mandant_email, self.f_versicherer, self.f_notiz):
             w.editingFinished.connect(self.akte_speichern)
         self.f_mandant.currentIndexChanged.connect(lambda *_: self.akte_speichern())
@@ -159,6 +161,7 @@ class AktenTab(QWidget):
         vsplit = QSplitter()
         self.verlauf = QTableWidget(0, 5)
         self.verlauf.setAccessibleName("Verlauf")
+        self.verlauf.setMinimumHeight(170)
         self.verlauf.setHorizontalHeaderLabels(["Zeit", "Art", "An / Von", "Beschreibung", "Datei"])
         self.verlauf.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.verlauf.setSelectionMode(QAbstractItemView.ExtendedSelection)

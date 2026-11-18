@@ -180,7 +180,7 @@ SZENEN = [  # (Bild, Start, Ende)
     (szene("07_vorgemerkt", FOTO / "09_schwaerzen_vorgemerkt.png", "Vertrauliches dauerhaft schwärzen"), s[4] + 4.7, s[4] + 6.6),
     (szene("08_geschwaerzt", FOTO / "09c_geschwaerzt.png", "Geschwärzt und geprüft"), s[4] + 6.6, s[6]),
     (szene("09_verzeichnis", FOTO / "13b_anlagenverzeichnis_word.png", "Anlagenverzeichnis in Word"), s[6], s[6] + 3.3),
-    (szene("10_pakete", FOTO / "12_kontrolle.png", "Einzelne PDFs: Schriftsatz, Anlage K1 …"), s[6] + 3.3, s[7]),
+    (szene("10_pakete", FOTO / "13_paket_erstellt.png", "Paket erstellen: Schriftsatz, Anlage K1 …"), s[6] + 3.3, s[7]),
     (szene("11_outlook", FOTO / "15_outlook_ausschnitt.png", "Anhänge im klassischen Outlook-Entwurf"), s[7], s[8]),
     (karte("12_ende", "Jetzt im Pilotbetrieb", "BnX-Raptor", "Entwickelt für Anwaltskanzleien. "
            "Jetzt im Pilotbetrieb kennenlernen."), s[8], LAENGE),
