@@ -258,16 +258,17 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.pdf_seite, "PDF-Editor")
         self.akten_tab = AktenTab(ctx)
         self.akten_seite = self._seite("Akten", "Versicherungsakten: Schreiben, Antworten und E-Mails an Mandanten.",
-                                       self.akten_tab)
+                                       self.akten_tab, rollen=True)
         self.tabs.addTab(self.akten_seite, "Akten")
         from .stammdaten_tab import MandantenTab, VersicherungenTab
         self.mandanten_tab = MandantenTab(ctx, self.akte_oeffnen)
         self.mandanten_seite = self._seite("Mandanten", "Personen und Firmen – mit ihren Akten. Änderungen werden "
-                                           "automatisch gespeichert.", self.mandanten_tab)
+                                           "automatisch gespeichert.", self.mandanten_tab, rollen=True)
         self.tabs.addTab(self.mandanten_seite, "Mandanten")
         self.versicherungen_tab = VersicherungenTab(ctx, self.akte_oeffnen)
         self.versicherungen_seite = self._seite("Versicherungen", "Versicherer mit Anschrift und E-Mail-Adressen "
-                                                "(zugleich das Versicherer-Adressbuch).", self.versicherungen_tab)
+                                                "(zugleich das Versicherer-Adressbuch).", self.versicherungen_tab,
+                                                rollen=True)
         self.tabs.addTab(self.versicherungen_seite, "Versicherungen")
         self.verlauf_tab = self._build_history_tab()
         self.einst_seite = self._build_einst_seite()
@@ -353,7 +354,7 @@ class MainWindow(QMainWindow):
             self.nav.blockSignals(False)
 
     # --- Seiten (0.4.0: Start, PDF-Editor, Einstellungen) ---
-    def _seite(self, titel: str, unter: str, inhalt: QWidget, zurueck: bool = False) -> QWidget:
+    def _seite(self, titel: str, unter: str, inhalt: QWidget, zurueck: bool = False, rollen: bool = False) -> QWidget:
         w = QWidget()
         w.setObjectName("seite")
         lay = QVBoxLayout(w)
@@ -369,6 +370,14 @@ class MainWindow(QMainWindow):
         lay.addLayout(kopf)
         if unter:
             lay.addWidget(theme.rolle(QLabel(unter), "gedimmt"))
+        if rollen:                               # bei 150 % / kleinen Bildschirmen: scrollen statt abschneiden
+            from PySide6.QtWidgets import QScrollArea
+            sc = QScrollArea()
+            sc.setWidgetResizable(True)
+            sc.setFrameShape(QFrame.NoFrame)
+            inhalt.setMinimumSize(inhalt.minimumSizeHint().width(), max(560, inhalt.minimumSizeHint().height()))
+            sc.setWidget(inhalt)
+            inhalt = sc
         lay.addWidget(inhalt, 1)
         return w
 
@@ -424,13 +433,13 @@ class MainWindow(QMainWindow):
         lay.addWidget(theme.ueberschrift("Weitere Aufgaben", "h2"))
         reihe = QHBoxLayout()
         reihe.setSpacing(16)
-        reihe.addWidget(self._aufgabe("pdf", "PDF bearbeiten", "Seiten ordnen, Text ändern, schwärzen und als Kopie speichern.",
+        reihe.addWidget(self._aufgabe("pdf", "PDF bearbeiten", "Seiten ordnen, Text ändern, schwärzen und speichern.",
                                       "PDF öffnen…", lambda: self.pdf_bearbeiten()))
         reihe.addWidget(self._aufgabe("ocr", "Scan durchsuchbar machen",
                                       "Texterkennung auf diesem Rechner – Deutsch, Türkisch, Englisch.",
                                       "Scan öffnen…", self.scan_durchsuchbar))
         reihe.addWidget(self._aufgabe("mail", "Versicherungsschreiben vorbereiten",
-                                      "Word-Schreiben als PDF/A und E-Mail-Entwurf an die Versicherung.",
+                                      "Schreiben (Word oder PDF) bearbeiten, als PDF/A und E-Mail-Entwurf an die Versicherung.",
                                       "Schreiben wählen…", self.versicherung_oeffnen))
         lay.addLayout(reihe, 2)
         return w
@@ -443,7 +452,7 @@ class MainWindow(QMainWindow):
         reihe = QHBoxLayout()
         reihe.setSpacing(16)
         reihe.addWidget(self._aufgabe("pdf", "PDF öffnen", "Seiten, Text, Texterkennung (OCR) und endgültiges Schwärzen. "
-                                      "Das Original bleibt unverändert – gespeichert wird eine Kopie.",
+                                      "Speichern (Strg+S) in dieselbe Datei oder „Speichern unter…“.",
                                       "PDF öffnen…", lambda: self.pdf_bearbeiten()))
         reihe.addWidget(self._aufgabe("ocr", "Scan durchsuchbar machen", "Öffnet den Scan und startet die Texterkennung "
                                       "für alle Seiten.", "Scan öffnen…", self.scan_durchsuchbar))

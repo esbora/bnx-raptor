@@ -62,6 +62,7 @@ class WordBearbeiter(QWidget):
         lay.addLayout(kopf)
         split = QSplitter()
         self.text = QPlainTextEdit()
+        self.text.setAccessibleName("Dokumenttext")
         self.text.setPlaceholderText("Dokument wird geladen …")
         f = QFont(self.text.font())
         f.setPointSizeF(f.pointSizeF() + 1)

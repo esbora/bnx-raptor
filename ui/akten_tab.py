@@ -130,6 +130,11 @@ class AktenTab(QWidget):
         self.f_mandant_email = QLineEdit()
         self.f_versicherer = QLineEdit()
         self.f_notiz = QLineEdit()
+        for w, n in ((self.f_aktenzeichen, "Aktenzeichen"), (self.f_mandant, "Mandant"), (self.f_versicherung,
+                     "Versicherung"), (self.f_vnr, "Versicherungsnummer"), (self.f_snr, "Schaden-Nr."),
+                     (self.f_mandant_email, "E-Mail Mandant"), (self.f_versicherer, "E-Mail Versicherung"),
+                     (self.f_notiz, "Notiz")):
+            w.setAccessibleName(n)
         zeile1 = QHBoxLayout()
         zeile1.addWidget(self.f_vnr, 1)
         zeile1.addWidget(QLabel("Schaden-Nr.:"))
@@ -153,6 +158,7 @@ class AktenTab(QWidget):
         rl.addWidget(self.l_verlauf)
         vsplit = QSplitter()
         self.verlauf = QTableWidget(0, 5)
+        self.verlauf.setAccessibleName("Verlauf")
         self.verlauf.setHorizontalHeaderLabels(["Zeit", "Art", "An / Von", "Beschreibung", "Datei"])
         self.verlauf.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.verlauf.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -191,14 +197,18 @@ class AktenTab(QWidget):
         knoepfe.addWidget(self.b_hinzu)
         knoepfe.addWidget(self.b_zuordnen)
         knoepfe.addStretch(1)
-        knoepfe.addWidget(self.b_mandant)
-        knoepfe.addWidget(self.b_vers)
         rl.addLayout(knoepfe)
+        mails = QHBoxLayout()                    # zweite Zeile: passt auch bei 1180 px Fensterbreite
+        mails.addStretch(1)
+        mails.addWidget(self.b_mandant)
+        mails.addWidget(self.b_vers)
+        rl.addLayout(mails)
 
         split = QSplitter()
         split.addWidget(self.liste)
         split.addWidget(rechts)
-        split.setSizes([380, 760])
+        self.liste.setMinimumWidth(240)
+        split.setSizes([330, 800])
 
         lay = QVBoxLayout(self)
         lay.addLayout(oben)

@@ -79,6 +79,7 @@ class _StammSeite(QWidget):
             w = QLineEdit()
             w.editingFinished.connect(self.speichern)
         self.felder[key] = w
+        w.setAccessibleName(label.rstrip(" *"))
         self.form.addRow(label + ":", w)
 
     def _formular(self):

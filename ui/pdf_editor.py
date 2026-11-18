@@ -147,6 +147,7 @@ class _VorschauDialog(QDialog):
         links.addWidget(bb)
         haupt.addLayout(links, 2)
         self.bild = KlickBild("Vorschau …")
+        self.bild.setAccessibleName("Absatz-Vorschau")
         self.bild.setAlignment(Qt.AlignCenter)
         self.bild.setCursor(Qt.PointingHandCursor)
         sc = QScrollArea()
@@ -222,6 +223,7 @@ class TextDialog(_VorschauDialog):
         self.bearbeiten = block is not None
         self.index, self.bbox, self.scan = -1, None, False
         self.text = QPlainTextEdit()
+        self.text.setAccessibleName("Absatztext")
         self.groesse = QDoubleSpinBox()
         self.groesse.setRange(5, 72)
         self.farbe = (0, 0, 0)
@@ -581,6 +583,7 @@ class PdfEditor(QDialog):
         self.thumbs.model().rowsMoved.connect(self._umsortiert)
         split.addWidget(self.thumbs)
         self.ansicht = SeitenAnsicht()
+        self.ansicht.setAccessibleName("Seitenansicht")
         self.ansicht.klick.connect(self._klick)
         self.ansicht.rechteck.connect(self._rechteck)
         sc = QScrollArea()

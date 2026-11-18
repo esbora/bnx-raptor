@@ -1,8 +1,9 @@
 """Gemeinsames Erscheinungsbild von BnX-Raptor: Farben, Schrift, Knopfstile, Statusfarben und Symbole.
 
 Einzige Stelle für das Design (0.4.0): warmer, heller Grund, weiße Karten, dunkles Marineblau für Überschriften,
-kräftiges Blau für Hauptaktionen, Pfirsich für Auswahl und kleine Akzente. Folgt dem Windows-Farbschema
-(hell/dunkel). Status wird nie nur über Farbe gezeigt, sondern immer mit Symbol und kurzem Text.
+kräftiges Blau für Hauptaktionen, Pfirsich für Auswahl und kleine Akzente. 0.4.1: IMMER hell – auch wenn
+Windows auf „Dunkel“ steht (Wunsch der Kanzlei). Knöpfe rund und lebendig (Verlauf, Hover, Druckzustand).
+Status wird nie nur über Farbe gezeigt, sondern immer mit Symbol und kurzem Text.
 """
 from __future__ import annotations
 
@@ -19,15 +20,6 @@ HELL = {
     "ok": "#157F3B", "ok_grund": "#E7F5EC", "warn": "#9A5B00", "warn_grund": "#FFF3D6",
     "fehler": "#B42318", "fehler_grund": "#FDECEA", "schatten": "#3A2A1A",
 }
-DUNKEL = {
-    "grund": "#1B1D22", "karte": "#252830", "leiste": "#202228", "rand": "#363A44", "rand_stark": "#4A4F5C",
-    "titel": "#EEF2FA", "text": "#E3E6EC", "gedimmt": "#A2A9B6", "eingabe": "#2D3039",
-    "primaer": "#4C8DFF", "primaer_hover": "#6AA0FF", "primaer_text": "#0B1220",
-    "pfirsich": "#4A3226", "pfirsich_stark": "#F5A07A", "pfirsich_text": "#FFD9C4",
-    "auswahl": "#4A3226", "auswahl_text": "#FFE9DB",
-    "ok": "#5BD38A", "ok_grund": "#16301F", "warn": "#F4C152", "warn_grund": "#3A2E10",
-    "fehler": "#FF8A80", "fehler_grund": "#3D1B19", "schatten": "#000000",
-}
 F: dict[str, str] = dict(HELL)            # aktuelle Farben (nach anwenden())
 
 SCHRIFT = "Segoe UI"
@@ -40,10 +32,8 @@ STATUS = {  # Art → (Symbol, Farbe, Grundfarbe, Kurztext)
 
 
 def dunkel() -> bool:
-    try:
-        return QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
-    except Exception:  # noqa: BLE001
-        return False
+    """Bewusst immer False: BnX-Raptor wird nie dunkel dargestellt."""
+    return False
 
 
 def farbe(name: str) -> QColor:
@@ -62,7 +52,8 @@ QLabel#marke_klein {{ color: {f['gedimmt']}; font-size: 8.5pt; }}
 QListWidget#navigation {{ background: transparent; border: none; outline: 0; font-size: 10.5pt; }}
 QListWidget#navigation::item {{ padding: 9px 12px; margin: 2px 8px; border-radius: 10px; color: {f['text']}; }}
 QListWidget#navigation::item:hover {{ background: {f['grund']}; }}
-QListWidget#navigation::item:selected {{ background: {f['pfirsich']}; color: {f['pfirsich_text']}; font-weight: 600; }}
+QListWidget#navigation::item:selected {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {f['pfirsich']},
+    stop:1 #FFF1E8); color: {f['pfirsich_text']}; font-weight: 600; border-left: 4px solid {f['pfirsich_stark']}; }}
 QListWidget#navigation:focus {{ outline: 0; }}
 QFrame[karte="true"] {{ background: {f['karte']}; border: 1px solid {f['rand']}; border-radius: 16px; }}
 QFrame[karte="true"]:hover[klickbar="true"] {{ border: 1px solid {f['pfirsich_stark']}; }}
@@ -76,17 +67,20 @@ QLabel[status="ok"] {{ color: {f['ok']}; background: {f['ok_grund']}; border-rad
 QLabel[status="warn"] {{ color: {f['warn']}; background: {f['warn_grund']}; border-radius: 8px; padding: 6px 10px; }}
 QLabel[status="fehler"] {{ color: {f['fehler']}; background: {f['fehler_grund']}; border-radius: 8px; padding: 6px 10px; }}
 QLabel[status="info"] {{ color: {f['gedimmt']}; padding: 6px 2px; }}
-QPushButton {{ background: {f['karte']}; color: {f['text']}; border: 1px solid {f['rand_stark']}; border-radius: 9px;
-              padding: 6px 14px; min-height: 20px; }}
-QPushButton:hover {{ border-color: {f['pfirsich_stark']}; background: {f['grund']}; }}
+QPushButton {{ background: {f['karte']}; color: {f['titel']}; border: 1.5px solid {f['rand_stark']}; border-radius: 16px;
+              padding: 6px 13px; min-height: 20px; }}
+QPushButton:hover {{ border-color: {f['pfirsich_stark']}; background: #FFF4EC; color: {f['pfirsich_text']}; }}
+QPushButton:pressed {{ background: {f['pfirsich']}; border-color: {f['pfirsich_stark']}; }}
 QPushButton:focus {{ border: 2px solid {f['primaer']}; }}
-QPushButton:disabled {{ color: {f['gedimmt']}; background: {f['grund']}; border-color: {f['rand']}; }}
-QPushButton[rolle="primaer"] {{ background: {f['primaer']}; color: {f['primaer_text']}; border: 1px solid {f['primaer']};
-                               font-weight: 600; padding: 8px 20px; }}
-QPushButton[rolle="primaer"]:hover {{ background: {f['primaer_hover']}; }}
-QPushButton[rolle="primaer"]:focus {{ border: 2px solid {f['titel']}; }}
-QPushButton[rolle="primaer"]:disabled {{ background: {f['rand']}; color: {f['gedimmt']}; border-color: {f['rand']}; }}
-QPushButton[rolle="gefahr"] {{ background: {f['fehler']}; color: #FFFFFF; border: 1px solid {f['fehler']}; font-weight: 600; }}
+QPushButton:disabled {{ color: #A8AEB8; background: {f['grund']}; border-color: {f['rand']}; }}
+QPushButton[rolle="primaer"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3D8BFF, stop:1 #1A5FE0);
+    color: #FFFFFF; border: none; font-weight: 700; padding: 8px 20px; border-radius: 18px; }}
+QPushButton[rolle="primaer"]:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5AA0FF, stop:1 #2A6FF0); }}
+QPushButton[rolle="primaer"]:pressed {{ background: #164FC0; }}
+QPushButton[rolle="primaer"]:focus {{ border: 2px solid {f['pfirsich_stark']}; }}
+QPushButton[rolle="primaer"]:disabled {{ background: {f['rand']}; color: {f['gedimmt']}; border: none; }}
+QPushButton[rolle="gefahr"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E5483A, stop:1 #B42318);
+    color: #FFFFFF; border: none; font-weight: 700; }}
 QPushButton[rolle="gefahr"]:disabled {{ background: {f['rand']}; color: {f['gedimmt']}; border-color: {f['rand']}; }}
 QPushButton[rolle="link"] {{ background: transparent; border: none; color: {f['primaer']}; padding: 4px 6px; text-align: left; }}
 QPushButton[rolle="link"]:hover {{ text-decoration: underline; }}
@@ -109,9 +103,11 @@ QMenu {{ background: {f['karte']}; border: 1px solid {f['rand']}; padding: 4px; 
 QMenu::item {{ padding: 6px 22px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {f['pfirsich']}; color: {f['pfirsich_text']}; }}
 QToolBar {{ background: {f['karte']}; border: none; border-bottom: 1px solid {f['rand']}; spacing: 4px; padding: 4px 8px; }}
-QToolButton {{ border: 1px solid transparent; border-radius: 9px; padding: 4px 8px; color: {f['text']}; }}
-QToolButton:hover {{ background: {f['grund']}; border-color: {f['rand']}; }}
-QToolButton:checked {{ background: {f['pfirsich']}; color: {f['pfirsich_text']}; border-color: {f['pfirsich_stark']}; }}
+QToolButton {{ border: 1px solid transparent; border-radius: 12px; padding: 5px 9px; color: {f['titel']}; }}
+QToolButton:hover {{ background: #FFF4EC; border-color: {f['pfirsich_stark']}; }}
+QToolButton:pressed {{ background: {f['pfirsich']}; }}
+QToolButton:checked {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFE9DB, stop:1 {f['pfirsich']});
+    color: {f['pfirsich_text']}; border: 1.5px solid {f['pfirsich_stark']}; }}
 QToolButton:focus {{ border: 2px solid {f['primaer']}; }}
 QToolButton[gruppe="haupt"] {{ font-weight: 600; min-width: 74px; }}
 QCheckBox {{ spacing: 8px; }}
@@ -128,7 +124,11 @@ QToolTip {{ background: {f['titel']}; color: {f['karte']}; border: none; padding
 def anwenden(app: QApplication) -> None:
     """Design einmal beim Start setzen (nach QApplication, vor dem ersten Fenster)."""
     F.clear()
-    F.update(DUNKEL if dunkel() else HELL)
+    F.update(HELL)                               # immer hell
+    try:                                         # Qt ≥ 6.8: auch Titelleisten/Systemdialoge hell
+        QGuiApplication.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    except Exception:  # noqa: BLE001
+        pass
     app.setStyle("Fusion")
     schrift = QFont(SCHRIFT, 10)
     schrift.setHintingPreference(QFont.PreferFullHinting)
