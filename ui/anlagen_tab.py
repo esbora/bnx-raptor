@@ -651,10 +651,14 @@ class AnlagenTab(QWidget):
         auswahl = self._seitenwahl() if gleiche else []
         aktuell = self.seiten.currentRow() if gleiche else -1
         self._render_takt.stop()
+        alte_anzahl = self._render_doc.page_count if self._render_doc is not None else -1
         if self._render_doc is not None:
             self._render_doc.close()
             self._render_doc = None
-        self.seiten.clear()
+        # Gleiche Anlage, gleiche Seitenzahl: Einträge (und Bilder) stehen lassen, nur ersetzen → kein Aufblitzen
+        behalten = gleiche and e.daten and not e.fehler and self.seiten.count() == alte_anzahl
+        if not behalten:
+            self.seiten.clear()
         self._vorschau_id = e.id if e else None
         if not e or not e.daten:
             if e and e.fehler and an.lesbar(e):
@@ -666,9 +670,14 @@ class AnlagenTab(QWidget):
             return
         self._render_doc = e.dokument()
         self._raster_signatur = None
+        if behalten and self.seiten.count() != self._render_doc.page_count:
+            self.seiten.clear(); behalten = False
         for p in self._render_doc:
             hinweis = " ⚠ gedreht?" if p.number in e.drehvorschlag else ""
-            self.seiten.addItem(QListWidgetItem(f"S. {p.number + 1}{hinweis}"))
+            if behalten:
+                self.seiten.item(p.number).setText(f"S. {p.number + 1}{hinweis}")
+            else:
+                self.seiten.addItem(QListWidgetItem(f"S. {p.number + 1}{hinweis}"))
         self.seiten.blockSignals(True)
         for r in auswahl:
             if r < self.seiten.count():
@@ -715,7 +724,20 @@ class AnlagenTab(QWidget):
         if sichtbar > 0:                            # die gewählte Seite zuerst
             self._render_warteschlange.remove(sichtbar)
             self._render_warteschlange.insert(0, sichtbar)
-        self._render_takt.start()
+        self._sofort_rendern()
+
+    def _sofort_rendern(self, budget_ms: int = 150):
+        """Erste Seiten sofort zeichnen (Cache-Treffer kosten nichts) – kein leerer Zwischenzustand; Rest im Takt."""
+        import time as _t
+        ende = _t.perf_counter() + budget_ms / 1000
+        while self._render_warteschlange and _t.perf_counter() < ende:
+            vorher = len(self._render_warteschlange)
+            self._naechste_seite_rendern()
+            if len(self._render_warteschlange) == vorher:
+                break
+        self._render_takt.stop()
+        if self._render_warteschlange:
+            self._render_takt.start()
 
     def _seite_pixmap(self, e, nr: int):
         from PySide6.QtGui import QGuiApplication as _G

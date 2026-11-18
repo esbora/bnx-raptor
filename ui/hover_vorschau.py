@@ -102,6 +102,14 @@ class _Fenster(QFrame):
         e.accept()
 
 
+def _gueltig(obj) -> bool:
+    try:
+        import shiboken6
+        return shiboken6.isValid(obj)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class HoverVorschau(QObject):
     def __init__(self, parent: QWidget, aktiv: Callable[[], bool] = lambda: True):
         super().__init__(parent)
@@ -142,6 +150,8 @@ class HoverVorschau(QObject):
                 if t != QEvent.Wheel:
                     self.schliessen()
             return False
+        if self._fenster is not None and not _gueltig(self._fenster):
+            self._fenster = None                    # Fenster beim Beenden schon abgebaut → nichts mehr tun
         if self._fenster is not None and self._fenster.isVisible():
             if t == QEvent.KeyPress:
                 if ev.key() == Qt.Key_Escape:
