@@ -157,6 +157,10 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   (NVD/curl/OSV; libcurl 8.21.0 bulguları – Tesseract yalnızca "://" girdide curl kullanır, BnX stdin verir). Bozuk PDF
   testinde /Count hatası bulundu ve düzeltildi (b3e1b94). Açık: proje lisansı, Qt kaynak kodu yolu, VC++ çalışma zamanı
   dağıtım koşulu (hukuki), Tesseract öz derlemesi (curl/libssh2 güncel değil).
+- [x] 0.4.0 arayüz DONDURULDU (2026-11-18, proje sahibi onayı): pilot sürüm = 0fe8ec5 (yerel etiket `v0.4.0-pilot`),
+  `ui/theme.py` tasarımı (açık sol menü, şeftali seçim, beyaz kartlar, mavi ana buton). Büro testinden sonra YALNIZCA
+  kullanımı aksatan sorunlar düzeltilir; tasarım değişikliği veya yeni özellik yok.
+- [ ] **Bekliyor:** Gerçek büro testi (`Pilot_0.4.0\BUEROTEST_CHECKLISTE.txt`), ikinci bilgisayar/SmartScreen, bağımsız PDF/A doğrulaması, yeni Outlook.
 - [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
 
