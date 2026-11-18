@@ -145,6 +145,23 @@ def seiten_drehen(e: Eintrag, seiten: list[int], grad: int) -> None:
     e.aktualisieren(doc, f"Seite(n) {', '.join(str(s + 1) for s in seiten)} gedreht")
 
 
+def seiten_drehen_schritte(e: Eintrag, schritte: dict[int, int]) -> dict[int, int]:
+    """Gesammelte Drehungen (Seite → Anzahl 90°-Schritte, negativ = links) in EINEM Schreibvorgang übernehmen.
+    Jede Seite dreht von ihrem eigenen Winkel aus. Rückgabe: neue Winkel je Seite. Original bleibt unberührt."""
+    from core.vorschau_logik import drehen
+    schritte = {s: n for s, n in schritte.items() if n % 4}
+    if not schritte:
+        return {}
+    doc = e.dokument()
+    neu = {}
+    for s, n in schritte.items():
+        neu[s] = drehen(doc[s].rotation, n)
+        doc[s].set_rotation(neu[s])
+        e.drehvorschlag.pop(s, None)
+    e.aktualisieren(doc, f"Seite(n) {', '.join(str(s + 1) for s in sorted(schritte))} gedreht")
+    return neu
+
+
 def seiten_loeschen(e: Eintrag, seiten: list[int]) -> None:
     doc = e.dokument()
     pe.seiten_loeschen(doc, seiten)

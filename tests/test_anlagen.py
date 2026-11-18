@@ -238,3 +238,21 @@ def test_word_umwandlung_fehler_wird_original(tmp_path):
     assert "Word-Umwandlung fehlgeschlagen" in e.fehler
     h = an.pruefen(None, [e])
     assert not an.blockiert(h) and h[0].art == "original"
+
+
+def test_drehen_volle_runde_und_paket(dateien, tmp_path):
+    """4× rechts = volle Runde; mehrere Seiten je aus eigenem Winkel; Paket + Gesamt-PDF wie die Vorschau."""
+    s, a, dup, kaputt = dateien
+    e = an.einlesen(a[0])                                  # 3 Seiten
+    vorher = a[0].read_bytes()
+    winkel = []
+    for _ in range(4):
+        winkel.append(an.seiten_drehen_schritte(e, {0: 1})[0])
+    assert winkel == [90, 180, 270, 0]
+    an.seiten_drehen_schritte(e, {1: 1})                  # Seite 2 steht jetzt auf 90°
+    neu = an.seiten_drehen_schritte(e, {0: 3, 1: 1, 2: -1})
+    assert neu == {0: 270, 1: 180, 2: 270}
+    p = an.paket_erstellen(tmp_path / "aus", None, [e], ["Anlage K1"], _word_stub, gesamt_pdf=True)
+    assert [x.rotation for x in pymupdf.open(p.ordner / "Anlage_K1.pdf")] == [270, 180, 270]
+    assert [x.rotation for x in pymupdf.open(p.ordner / an.GESAMT)] == [270, 180, 270]
+    assert a[0].read_bytes() == vorher                     # Original unverändert

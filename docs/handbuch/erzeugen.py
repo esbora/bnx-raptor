@@ -1,4 +1,4 @@
-"""Erzeugt das deutsche Benutzerhandbuch: docs/Benutzerhandbuch_BnX-Raptor_0.4.1_DE.pdf
+"""Erzeugt das deutsche Benutzerhandbuch: docs/Benutzerhandbuch_BnX-Raptor_0.4.2_DE.pdf
 
 Bilder: docs/handbuch/bilder/ – Bildschirmfotos des echten Programms mit fiktiven Daten (Testakte Mustermann,
 „Kanzlei Muster & Partner (fiktiv)“). Aufruf: python docs/handbuch/erzeugen.py
@@ -15,9 +15,9 @@ import pymupdf
 HIER = Path(__file__).resolve().parent
 KOK = HIER.parent.parent
 BILDER = HIER / "bilder"
-ZIEL = KOK / "docs" / "Benutzerhandbuch_BnX-Raptor_0.4.1_DE.pdf"
+ZIEL = KOK / "docs" / "Benutzerhandbuch_BnX-Raptor_0.4.2_DE.pdf"
 H = json.loads((KOK / "docs" / "CRA" / "hersteller.json").read_text(encoding="utf-8"))
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 
 CSS = """
 body { font-family: sans-serif; font-size: 10pt; line-height: 1.38; color: #283040; }
@@ -189,9 +189,10 @@ Gleiche und ähnliche Dateien zeigen nur einen Hinweis (ℹ). Was entfernt wird,
 <li><b>Bezeichnung:</b> In der Liste <span class='t'>F2</span> drücken oder rechts unter {ui('Bezeichnung')} ändern.</li>
 <li><b>Seiten bearbeiten:</b> <b>Doppelklick auf eine Seite in der {ui('Vorschau')}</b> öffnet die Anlage genau dort im
 Werkzeug {ui('Text bearbeiten')}. {ui('OK – Änderungen speichern')} übernimmt die Änderung sofort in die Anlage
-(Vorschau und Angaben werden aktualisiert). Außerdem: {ui('Drehen')}, {ui('Seite löschen')}, {ui('Als eigene Anlage')},
+(Vorschau und Angaben werden aktualisiert). Außerdem: {ui('Links drehen')} / {ui('Rechts drehen')} (jeder Klick 90°, auch mehrere Seiten gleichzeitig), {ui('Löschen')}, {ui('Als eigene Anlage')},
 {ui('Texterkennung (OCR)')}. Die Originaldateien bleiben unverändert.</li></ol>
 {bild('11_anlagen_geordnet.png', 'Geordnet und nummeriert; das Hauptdokument steht oben.', 470)}
+<div class='hinweis'><b>Große Vorschau:</b> Maus kurz über eine Anlage, eine Seite oder einen Anhang halten – eine große, gut lesbare Vorschau öffnet sich (Mausrad oder ←/→ blättert, Esc schließt). Abschaltbar unter {ui('Einstellungen')} → {ui('Große Vorschau beim Darüberfahren')}.</div>
 <ol start='7'><li><b>Erstellen:</b> {ui('Paket erstellen')} (<span class='t'>Alt+P</span>) – ohne Zwischenfenster. Ohne Zielordner
 öffnet sich die Ordnerauswahl.</li></ol>
 {bild('13_paket_erstellt.png', 'Paket erstellt: Ergebnis und Hinweise unten in der Statuszeile.', 470)}

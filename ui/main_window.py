@@ -477,9 +477,21 @@ class MainWindow(QMainWindow):
                                       "automatisch installiert.", "Nach Updates suchen",
                                       lambda: self.update_pruefen(manuell=True)))
         lay.addLayout(reihe)
+        self.cb_grosse_vorschau = QCheckBox("Große Vorschau beim Darüberfahren")
+        self.cb_grosse_vorschau.setToolTip("Maus kurz über einer Anlage oder einem Anhang halten: große, gut lesbare "
+                                           "Vorschau (Mausrad/←/→ blättert, Esc schließt)")
+        self.cb_grosse_vorschau.setChecked(bool(self.cfg.get("grosse_vorschau", True)))
+        self.cb_grosse_vorschau.toggled.connect(self._grosse_vorschau_setzen)
+        lay.addWidget(self.cb_grosse_vorschau)
         lay.addWidget(theme.ueberschrift("Verlauf", "h2"))
         lay.addWidget(self.verlauf_tab, 1)
         return self._seite("Einstellungen", "Kanzleidaten, Adressbuch, Programm und Verlauf.", inhalt)
+
+    def _grosse_vorschau_setzen(self, an: bool):
+        from core.config import einstellung_speichern
+        self.cfg["grosse_vorschau"] = bool(an)
+        if not einstellung_speichern("grosse_vorschau", bool(an)):
+            theme.status_setzen(self.status, "warn", "Einstellung gilt bis zum Programmende (config.json nicht schreibbar).")
 
     def scan_durchsuchbar(self):
         name, _ = QFileDialog.getOpenFileName(self, "Scan durchsuchbar machen", "", "PDF (*.pdf)")

@@ -10,8 +10,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QItemSelectionModel, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QGuiApplication, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter,
@@ -25,6 +25,14 @@ from core.fehlertexte import meldung
 
 from . import theme
 from .pdf_ui import AnhangVorschau, im_thread, qpixmap
+
+
+def _klares_icon(pix) -> QIcon:
+    """Seitenbild auch im ausgewählten Zustand unverfälscht (kein blauer Schleier) – Auswahl zeigt der Rahmen."""
+    ic = QIcon()
+    for modus in (QIcon.Normal, QIcon.Selected, QIcon.Active):
+        ic.addPixmap(pix, modus)
+    return ic
 
 
 def _gleiche_datei(a: Path, b: Path) -> bool:
@@ -82,7 +90,32 @@ class AnlagenTab(QWidget):
         self.schriftsatz_id: int | None = None
         self.paket: an.Paket | None = None
         self.schritte = 0                          # Bedienschritte (für Auswertung/Protokoll)
+        # 0.4.2: Vorschau groß und gerastert, Drehen gesammelt (Anzeige sofort, Schreiben nach kurzer Pause)
+        from core.vorschau_logik import BildCache
+        self._cache = BildCache(120 * 1024 * 1024)
+        self._offen: dict[int, int] = {}           # Seite → Anzahl 90°-Schritte (noch nicht geschrieben)
+        self._offen_id: int | None = None          # zu welcher Anlage die offenen Drehungen gehören
+        self._vorschau_id: int | None = None
+        self._render_doc = None
+        self._render_warteschlange: list[int] = []
+        self._kachel = (170, 240)
+        self._raster_takt = QTimer(self)
+        self._raster_takt.setSingleShot(True)
+        self._raster_takt.setInterval(120)
+        self._raster_takt.timeout.connect(self._raster_anpassen)
+        self._render_takt = QTimer(self)
+        self._render_takt.setSingleShot(True)
+        self._render_takt.setInterval(0)
+        self._render_takt.timeout.connect(self._naechste_seite_rendern)
+        self._dreh_takt = QTimer(self)
+        self._dreh_takt.setSingleShot(True)
+        self._dreh_takt.setInterval(600)
+        self._dreh_takt.timeout.connect(self.drehungen_schreiben)
         self._aufbau()
+        from .hover_vorschau import HoverVorschau
+        self.hover = HoverVorschau(self, aktiv=lambda: bool(self.cfg.get("grosse_vorschau", True)))
+        self.hover.anmelden(self.liste, self._hover_liste)
+        self.hover.anmelden(self.seiten, self._hover_seite)
 
     # ------------------------------------------------------------- Aufbau
     def _aufbau(self):
@@ -145,7 +178,10 @@ class AnlagenTab(QWidget):
                                         ("Ausrichtung ko&rrigieren", self.ausrichtung_korrigieren))):
             b = QPushButton(text)
             b.clicked.connect(fn)
-            knoepfe.addWidget(b, i // 2, i % 2)
+            if i < 2:
+                knoepfe.addWidget(b, 0, i)
+            else:                                   # Entfernen / Ausrichtung: je eine volle Zeile, nichts abgeschnitten
+                knoepfe.addWidget(b, i - 1, 0, 1, 2)
         ll.addLayout(knoepfe)
         split.addWidget(links)
         # --- Mitte: große Vorschau
@@ -155,29 +191,50 @@ class AnlagenTab(QWidget):
         l_vor = QLabel("&Vorschau")
         l_vor.setProperty("rolle", "h3")
         ml.addWidget(l_vor)
-        hinw = theme.rolle(QLabel("Doppelklick auf eine Seite: dort bearbeiten. Seiten anklicken (Strg/Umschalt "
-                                  "für mehrere), dann Seitenaktion wählen."), "gedimmt")
-        hinw.setWordWrap(True)
+        hinw = theme.rolle(QLabel("Doppelklick: bearbeiten · Strg/Umschalt: mehrere"), "gedimmt")
+        hinw.setToolTip("Doppelklick auf eine Seite öffnet sie zum Bearbeiten. Seiten anklicken (Strg/Umschalt für "
+                        "mehrere), dann drehen, löschen oder als eigene Anlage herauslösen. Maus kurz über eine Seite "
+                        "halten: große Vorschau.")
         ml.addWidget(hinw)
         self.seiten = QListWidget()
         self.seiten.setAccessibleName("Vorschauseiten")
         l_vor.setBuddy(self.seiten)
         self.seiten.setViewMode(QListWidget.IconMode)
         self.seiten.setIconSize(QSize(170, 240))
-        self.seiten.setSpacing(10)
+        self.seiten.setSpacing(0)
         self.seiten.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.seiten.setResizeMode(QListWidget.Adjust)
         self.seiten.setMovement(QListWidget.Static)
         self.seiten.setWordWrap(True)
+        self.seiten.setUniformItemSizes(True)
+        self.seiten.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.seiten.setStyleSheet(
+            f"QListWidget::item {{ border: 3px solid transparent; border-radius: 8px; padding: 2px; }}"
+            f"QListWidget::item:selected {{ border: 3px solid {theme.F['primaer']}; background: {theme.F['auswahl']}; }}")
         self.seiten.itemDoubleClicked.connect(lambda it: self.im_editor(self.seiten.row(it)))
+        self.seiten.viewport().installEventFilter(self)
         ml.addWidget(self.seiten, 1)
-        sk = QGridLayout()
-        for i, (text, fn) in enumerate((("↻ &Drehen", lambda: self.seitenaktion("drehen")),
-                                        ("Seite l&öschen", lambda: self.seitenaktion("loeschen")),
-                                        ("Als ei&gene Anlage", lambda: self.seitenaktion("eigene")))):
-            b = QPushButton(text)
+        sk = QHBoxLayout()
+        sk.setSpacing(6)
+        for text, tip, fn in (("↺", "Links drehen (90° gegen den Uhrzeigersinn)", lambda: self.drehen(-1)),
+                              ("↻", "Rechts drehen (90° im Uhrzeigersinn) – Alt+D", lambda: self.drehen(1)),
+                              ("L&öschen", "Ausgewählte Seite(n) löschen", lambda: self.seitenaktion("loeschen")),
+                              ("Als ei&gene Anlage", "Ausgewählte Seite(n) als eigene Anlage herauslösen",
+                               lambda: self.seitenaktion("eigene"))):
+            b = QPushButton(text if text not in ("↺", "↻") else "")
+            b.setToolTip(tip)
+            b.setAccessibleName(tip.split(" (")[0].split(" –")[0])
             b.clicked.connect(fn)
-            sk.addWidget(b, i // 2, i % 2)
+            if text in ("↺", "↻"):
+                ic = theme.icon("drehen", "titel", 20)
+                if text == "↺":                          # Links drehen = gespiegeltes Symbol
+                    from PySide6.QtGui import QTransform
+                    ic = QIcon(ic.pixmap(40, 40).transformed(QTransform().scale(-1, 1)))
+                b.setIcon(ic)
+                b.setIconSize(QSize(20, 20))
+                b.setFixedWidth(48)
+            sk.addWidget(b, 0 if text in ("↺", "↻") else 1)
+        QShortcut(QKeySequence("Alt+D"), self, lambda: self.drehen(1), context=Qt.WidgetWithChildrenShortcut)
         ml.addLayout(sk)
         split.addWidget(mitte)
         # --- rechts: ausgewählte Anlage + Paket
@@ -241,16 +298,16 @@ class AnlagenTab(QWidget):
         rl.addWidget(self.gesamt)
         rl.addStretch(1)
         split.addWidget(rechts_karte)
-        for w_, mn in ((links, 250), (mitte, 220), (rechts_karte, max(230, rechts.minimumSizeHint().width() + 26))):
+        for w_, mn in ((links, 300), (mitte, 300), (rechts_karte, max(230, rechts.minimumSizeHint().width() + 26))):
             w_.setMinimumWidth(mn)
-        split.setStretchFactor(0, 4)
-        split.setStretchFactor(1, 4)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 5)                # Vorschau bekommt den meisten Platz
         split.setStretchFactor(2, 3)
-        split.setSizes([430, 430, 300])
+        split.setSizes([320, 470, 270])
         lay.addWidget(split, 1)
 
         self.hinweise = QListWidget()
-        self.hinweise.setMaximumHeight(84)
+        self.hinweise.setMaximumHeight(62)
         self.hinweise.setToolTip("Hinweise zu allen Anlagen: ✖ stoppt das Paket, ⚠ bitte prüfen, ✓ in Ordnung")
         lay.addWidget(self.hinweise)
         unten = theme.karte(QFrame(), schatten=False)
@@ -587,8 +644,19 @@ class AnlagenTab(QWidget):
     # ------------------------------------------------------------- Vorschau / Seitenaktionen
     def _vorschau(self):
         self._details()
-        self.seiten.clear()
         e = self.ausgewaehlt()
+        if self._offen and (e is None or e.id != self._offen_id):
+            self.drehungen_schreiben()             # Wechsel der Anlage: offene Drehungen der alten zuerst sichern
+            return                                  # drehungen_schreiben() ruft _geaendert() → _vorschau() erneut
+        gleiche = e is not None and e.id == self._vorschau_id
+        auswahl = self._seitenwahl() if gleiche else []
+        aktuell = self.seiten.currentRow() if gleiche else -1
+        self._render_takt.stop()
+        if self._render_doc is not None:
+            self._render_doc.close()
+            self._render_doc = None
+        self.seiten.clear()
+        self._vorschau_id = e.id if e else None
         if not e or not e.daten:
             if e and e.fehler and an.lesbar(e):
                 self.seiten.addItem(QListWidgetItem(f"{an.ORIGINAL_TEXT}\n{e.quelle.name}\n({e.fehler})"))
@@ -597,20 +665,163 @@ class AnlagenTab(QWidget):
             elif e and e.art == "word":
                 self.seiten.addItem(QListWidgetItem("Word-Dokument – wird beim Erstellen in PDF umgewandelt"))
             return
-        doc = e.dokument()
-        for p in doc:
-            hinweis = ""
-            if p.number in e.drehvorschlag:
-                hinweis = " ⚠ gedreht?"
-            it = QListWidgetItem(f"S. {p.number + 1}{hinweis}")
-            it.setIcon(qpixmap(pe.seitenbild(p, 260)))
-            self.seiten.addItem(it)
-        doc.close()
+        self._render_doc = e.dokument()
+        for p in self._render_doc:
+            hinweis = " ⚠ gedreht?" if p.number in e.drehvorschlag else ""
+            self.seiten.addItem(QListWidgetItem(f"S. {p.number + 1}{hinweis}"))
+        self.seiten.blockSignals(True)
+        for r in auswahl:
+            if r < self.seiten.count():
+                self.seiten.item(r).setSelected(True)
+        if 0 <= aktuell < self.seiten.count():
+            self.seiten.setCurrentRow(aktuell, QItemSelectionModel.NoUpdate)
+        self.seiten.blockSignals(False)
+        self._raster_anpassen()
+
+    def eventFilter(self, obj, ev):
+        if obj is self.seiten.viewport() and ev.type() == QEvent.Resize:
+            self._raster_takt.start()               # Fenster/Bereich geändert → Größe nach kurzer Pause anpassen
+        return super().eventFilter(obj, ev)
+
+    def _raster_anpassen(self):
+        """Seiten so groß wie möglich in den Vorschaubereich legen (tiny → scrollen statt verkleinern)."""
+        from core.vorschau_logik import seiten_raster
+        doc = self._render_doc
+        if doc is None or not doc.page_count:
+            return
+        r0 = doc[0].rect
+        verh = r0.width / max(r0.height, 1)
+        vp = self.seiten.viewport().size()
+        r = seiten_raster(doc.page_count, vp.width() - (14 if doc.page_count > 1 else 2), vp.height() - 2, verh,
+                          min_breite=260, abstand=12, beschriftung=22)
+        kachel = (max(r.kachel_b, 60), max(r.kachel_h, 80))
+        self.seiten.setIconSize(QSize(*kachel))
+        breite = vp.width() - (14 if r.rollen else 2)
+        zelle = max(kachel[0] + 12, breite // max(r.spalten, 1))   # Zellen füllen die Breite → Seiten mittig
+        self.seiten.setGridSize(QSize(zelle, kachel[1] + 30))
+        self._kachel = kachel
+        self._render_warteschlange = list(range(doc.page_count))
+        sichtbar = self.seiten.currentRow()
+        if sichtbar > 0:                            # die gewählte Seite zuerst
+            self._render_warteschlange.remove(sichtbar)
+            self._render_warteschlange.insert(0, sichtbar)
+        self._render_takt.start()
+
+    def _seite_pixmap(self, e, nr: int):
+        from PySide6.QtGui import QGuiApplication as _G
+        dpr = _G.primaryScreen().devicePixelRatio() if _G.primaryScreen() else 1.0
+        breite = int(max(self._kachel) * dpr)       # lange Kante – reicht auch für gedrehte Seiten
+        schluessel = (e.id, id(e.daten), nr, breite)
+        pix = self._cache.get(schluessel)
+        if pix is None:
+            page = self._render_doc[nr]
+            groesser = max(page.rect.width, page.rect.height)
+            zoom = breite / max(groesser, 1)
+            import pymupdf
+            pix = qpixmap(page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False))
+            self._cache.put(schluessel, pix, pix.width() * pix.height() * 4)
+        n = self._offen.get(nr, 0) % 4 if self._offen_id == e.id else 0
+        if n:
+            from PySide6.QtGui import QTransform
+            pix = pix.transformed(QTransform().rotate(90 * n), Qt.SmoothTransformation)
+        pix = QPixmap(pix)
+        pix.setDevicePixelRatio(dpr)
+        return pix
+
+    def _naechste_seite_rendern(self):
+        """Eine Seite je Durchlauf rendern – die Oberfläche bleibt bedienbar."""
+        e = self.ausgewaehlt()
+        if not self._render_warteschlange or e is None or self._render_doc is None or e.id != self._vorschau_id:
+            return
+        nr = self._render_warteschlange.pop(0)
+        if nr < self.seiten.count():
+            try:
+                self.seiten.item(nr).setIcon(_klares_icon(self._seite_pixmap(e, nr)))
+            except Exception:  # noqa: BLE001 – einzelne Seite nicht darstellbar: Liste bleibt bedienbar
+                self.seiten.item(nr).setText(f"S. {nr + 1} – keine Vorschau")
+        if self._render_warteschlange:
+            self._render_takt.start()
+
+    # --- Drehen (sofort sichtbar, gesammelt geschrieben) ---------------------
+    def drehen(self, richtung: int):
+        from core.vorschau_logik import drehungen_sammeln
+        e = self.ausgewaehlt()
+        if not e or not e.daten:
+            return
+        seiten = self._seitenwahl()
+        if not seiten and self.seiten.count() == 1:
+            seiten = [0]
+        if not seiten:
+            QMessageBox.information(self, "Seiten", "Bitte zuerst in der Vorschau Seite(n) auswählen.")
+            return
+        self.schritte += 1
+        if self._offen_id != e.id:
+            self._offen, self._offen_id = {}, e.id
+        self._offen = drehungen_sammeln(self._offen, seiten, richtung)
+        for nr in seiten:                           # Anzeige sofort (gecachtes Bild nur drehen)
+            if nr < self.seiten.count():
+                try:
+                    self.seiten.item(nr).setIcon(_klares_icon(self._seite_pixmap(e, nr)))
+                except Exception:  # noqa: BLE001
+                    pass
+        self.status.setText(f"Seite(n) {', '.join(str(s + 1) for s in seiten)} gedreht.")
+        self._dreh_takt.start()                     # Schreiben erst nach kurzer Pause, in einem Schritt
+
+    def drehungen_schreiben(self):
+        """Offene Drehungen in die Arbeitskopie übernehmen (vor Paket, Editor, Seitenaktionen, Anlagenwechsel)."""
+        self._dreh_takt.stop()
+        if not self._offen or self._offen_id is None:
+            self._offen, self._offen_id = {}, None
+            return
+        e = self.eintraege.get(self._offen_id)
+        offen = self._offen
+        self._offen, self._offen_id = {}, None
+        if e is None or not e.daten:
+            return
+        try:
+            an.seiten_drehen_schritte(e, offen)
+        except pe.PdfFehler as ex:
+            QMessageBox.warning(self, "Seiten", meldung(ex))
+        self._geaendert()
+
+    def _hover_liste(self, pos):
+        from .hover_vorschau import Quelle, quelle_aus_datei
+        it = self.liste.itemAt(pos)
+        if it is None:
+            return None
+        e = self.eintraege.get(it.data(0, Qt.UserRole))
+        if e is None:
+            return None
+        bez = f"{it.text(0)}: {e.titel}" if it.text(0) else e.titel
+        if e.id == self._offen_id and self._offen:
+            self.drehungen_schreiben()
+        if e.daten:
+            return Quelle(("anlage", e.id, id(e.daten)), e.quelle.name, bez, daten=e.daten)
+        q = quelle_aus_datei(e.quelle, bez)
+        if e.fehler and not q.hinweis:
+            q.hinweis = "Keine Vorschau verfügbar – Datei ist beschädigt oder leer."
+        return q
+
+    def _hover_seite(self, pos):
+        from .hover_vorschau import Quelle
+        it = self.seiten.itemAt(pos)
+        e = self.ausgewaehlt()
+        if it is None or e is None or not e.daten:
+            return None
+        if self._offen:
+            return None                             # während des Drehens keine große Vorschau (gleich aktuell)
+        li = self.liste.currentItem()
+        bez = f"{li.text(0)}: {e.titel}" if li is not None and li.text(0) else e.titel
+        return Quelle(("anlage", e.id, id(e.daten)), e.quelle.name, bez, daten=e.daten, seite=self.seiten.row(it))
 
     def _seitenwahl(self) -> list[int]:
         return sorted(self.seiten.row(i) for i in self.seiten.selectedItems())
 
     def seitenaktion(self, art: str):
+        if art == "drehen":
+            self.drehen(1)
+            return
+        self.drehungen_schreiben()
         e = self.ausgewaehlt()
         if not e or not e.daten:
             return
@@ -664,6 +875,10 @@ class AnlagenTab(QWidget):
         self._geaendert()
 
     def im_editor(self, seite: int | None = None):
+        self.drehungen_schreiben()
+        self._im_editor(seite)
+
+    def _im_editor(self, seite: int | None = None):
         """Anlage im Editor öffnen – bei Doppelklick in der Vorschau direkt auf dieser Seite im Werkzeug
         „Text bearbeiten“. „Speichern“/„OK“ übernimmt sofort in diese Anlage (Vorschau + Angaben neu)."""
         e = self.ausgewaehlt()
@@ -689,6 +904,7 @@ class AnlagenTab(QWidget):
 
     def paket_erstellen(self):
         """Direkt erstellen – ohne Prüffenster. Fehlt der Zielordner, öffnet sich sofort die Ordnerauswahl."""
+        self.drehungen_schreiben()
         s, anl, bez = self.schriftsatz(), self.anlagen(), self.bezeichnungen()
         if not s and not anl:
             self.status.setText("Keine Dateien in der Liste.")
@@ -787,7 +1003,8 @@ class AnlagenTab(QWidget):
                              "Anlagenverzeichnis (Word)" if d.rolle == "verzeichnis" else "nur intern"),
                     d.rolle in ("schriftsatz", "anlage", "original")) for d in self.paket.dateien
                    if d.rolle != "fehlt"]
-        dlg = AnhangVorschau(self, dateien, "Anhänge für den Outlook-Entwurf")
+        dlg = AnhangVorschau(self, dateien, "Anhänge für den Outlook-Entwurf",
+                             aktiv=lambda: bool(self.cfg.get("grosse_vorschau", True)))
         if dlg.exec() != QDialog.Accepted:
             return
         self.schritte += 1

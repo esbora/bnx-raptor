@@ -40,6 +40,7 @@ DEFAULTS: dict = {
     "eingang_tage": 30,               # Outlook'ta kaç gün geriye bakılsın
     "update_repo": "esbora/BnX-Raptor",  # GitHub "kullanici/repo" – boş = güncelleme kontrolü kapalı
     "update_pruefen": True,
+    "grosse_vorschau": True,          # 0.4.2: große Vorschau beim Darüberfahren (Einstellungen)
     "signatur_quelle": "outlook",     # "outlook" (Outlook imzası) | "programm" (Kanzleidaten'dan)
     "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
     "word_zeitlimit_sekunden": 90,    # gizli Word penceresi takılırsa işlem bu süre sonunda biter
@@ -110,3 +111,17 @@ def load_config() -> dict:
         except OSError:
             pass                      # yazma izni yoksa varsayılanlarla devam
     return cfg
+
+
+def einstellung_speichern(schluessel: str, wert) -> bool:
+    """Einen Wert in config.json setzen (andere Einträge bleiben unverändert). False, wenn nicht schreibbar."""
+    path = app_dir() / "config.json"
+    try:
+        daten = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else dict(DEFAULTS)
+        daten[schluessel] = wert
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+        return True
+    except (OSError, ValueError):
+        return False

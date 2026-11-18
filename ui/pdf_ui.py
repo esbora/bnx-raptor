@@ -52,18 +52,21 @@ def datei_info(p: Path) -> tuple[int, str]:
     if p.suffix.lower() != ".pdf":
         return 0, sha
     import pymupdf
-    with pymupdf.open(p) as d:
-        return d.page_count, sha
+    try:
+        with pymupdf.open(p) as d:
+            return d.page_count, sha
+    except Exception:  # noqa: BLE001 – leere/beschädigte PDF: keine Seitenzahl, aber kein Absturz
+        return 0, sha
 
 
 class AnhangVorschau(QDialog):
     """Zeigt vor dem Erstellen des Entwurfs genau die Dateien (Reihenfolge, Version, Prüfsumme),
     die angehängt werden. Der Nutzer kann einzelne abwählen. Es wird nichts gesendet."""
 
-    def __init__(self, parent, dateien: list[tuple[Path, str, bool]], titel: str = "Anhänge prüfen"):
+    def __init__(self, parent, dateien: list[tuple[Path, str, bool]], titel: str = "Anhänge prüfen", aktiv=None):
         super().__init__(parent)
         self.setWindowTitle(f"{titel} – BnX-Raptor")
-        self.resize(820, 560)
+        self.resize(980, 620)
         self.dateien = dateien
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel("<b>Diese Dateien werden in dieser Reihenfolge an den Entwurf angehängt.</b> "
@@ -86,9 +89,27 @@ class AnhangVorschau(QDialog):
         self.liste.currentRowChanged.connect(self._zeigen)
         zeile.addWidget(self.liste, 3)
         self.bild = QLabel()
-        self.bild.setMinimumWidth(240)
+        self.bild.setMinimumWidth(300)
         self.bild.setAlignment(Qt.AlignCenter)
+        self.bild.setToolTip("Maus darüber halten: große Vorschau")
         zeile.addWidget(self.bild, 1)
+        # 0.4.2: große Vorschau beim Darüberfahren (Zeilen und kleines Vorschaubild)
+        from .hover_vorschau import HoverVorschau, quelle_aus_datei
+        self._beschreibung = {str(pf): b for pf, b, _ in dateien}
+        self.hover = HoverVorschau(self, aktiv=aktiv or (lambda: True))
+
+        def zeile_quelle(pos):
+            it = self.liste.itemAt(pos)
+            if it is None:
+                return None
+            pf = it.data(Qt.UserRole)
+            return quelle_aus_datei(Path(pf), self._beschreibung.get(pf, ""))
+
+        def bild_quelle(_pos):
+            it = self.liste.currentItem()
+            return zeile_quelle(self.liste.visualItemRect(it).center()) if it is not None else None
+        self.hover.anmelden(self.liste, zeile_quelle)
+        self.hover.anmelden(self.bild, bild_quelle)
         lay.addLayout(zeile, 1)
         bb = QDialogButtonBox()
         self.ok = bb.addButton("In Outlook-Entwurf übernehmen", QDialogButtonBox.AcceptRole)
@@ -103,13 +124,20 @@ class AnhangVorschau(QDialog):
         if i < 0:
             return
         p = Path(self.liste.item(i).data(Qt.UserRole))
+        self.bild.setPixmap(QPixmap())
         if p.suffix.lower() == ".pdf":
-            import pymupdf
-            from core.pdf_engine import seitenbild
-            with pymupdf.open(p) as d:
-                self.bild.setPixmap(qpixmap(seitenbild(d[0], 230)))
+            try:
+                from core.pdf_engine import oeffnen, seitenbild
+                d = oeffnen(p)
+                self.bild.setPixmap(qpixmap(seitenbild(d[0], 290)))
+                d.close()
+            except Exception:  # noqa: BLE001 – beschädigt/leer: Meldung statt Fehlerfenster
+                self.bild.setText("Keine Vorschau verfügbar –\nDatei ist beschädigt oder leer.")
+        elif p.suffix.lower() in (".jpg", ".jpeg", ".png", ".tif", ".tiff"):
+            pm = QPixmap(str(p))
+            self.bild.setPixmap(pm.scaledToWidth(290, Qt.SmoothTransformation) if not pm.isNull() else pm)
         else:
-            self.bild.setText("Word-Dokument")
+            self.bild.setText("Word-Dokument –\nkeine Bildvorschau")
 
     def auswahl(self) -> list[tuple[Path, str]]:
         """Angehakte Dateien in Reihenfolge + die hier angezeigte Prüfsumme."""
