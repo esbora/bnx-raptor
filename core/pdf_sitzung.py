@@ -1,10 +1,12 @@
 """PDF düzenleme oturumu: bellekteki çalışma kopyası, geri al / yinele, önizleme, „Speichern unter…“.
 
-Orijinal dosya hiçbir zaman değiştirilmez: belge belleğe okunur, sonuç yeni dosyaya yazılır.
+Belge belleğe okunur. 0.4.1: „Speichern“ aynı dosyaya yazar (geçici dosya → kontrol → güvenli değiştirme);
+dosya bu arada dışarıdan değiştiyse veya kilitliyse üzerine yazılmaz. „Speichern unter…“ ayrı kalır.
 Arayüzden bağımsızdır (testlerde doğrudan kullanılır).
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,8 +34,10 @@ class Speicherergebnis:
 class PdfSitzung:
     def __init__(self, pfad: Path | None = None, daten: bytes | None = None, name: str = ""):
         self.original = Path(pfad) if pfad else None
+        self._basis = ""                     # Fingerabdruck der Datei beim Öffnen (nur bei PDF-Dateien)
         if daten is None and pfad and Path(pfad).suffix.lower() == ".pdf":
-            daten = Path(pfad).read_bytes()          # ganz in den Speicher: Original wird nie gesperrt/geändert
+            daten = Path(pfad).read_bytes()          # ganz in den Speicher: Datei bleibt während der Arbeit frei
+            self._basis = hashlib.sha256(daten).hexdigest()
         self.doc = pe.oeffnen(pfad, daten)
         self.name = name or (self.original.name if self.original else "Dokument.pdf")
         self.signaturen = pe.signaturen(self.doc)
@@ -121,26 +125,71 @@ class PdfSitzung:
             i += 1
         return ziel
 
+    @property
+    def kann_speichern(self) -> bool:
+        """„Speichern“ in dieselbe Datei möglich (PDF-Datei geöffnet, nicht nur Bytes im Speicher)."""
+        return bool(self._basis)
+
+    def extern_geaendert(self) -> bool:
+        return bool(self._basis) and _fingerabdruck(self.original) != self._basis
+
+    def speichern(self, pruefen_ocr: bool = True) -> Speicherergebnis:
+        """In dieselbe Datei speichern (Strg+S). Erst Temp-Datei, prüfen (auch Schwärzung), dann ersetzen.
+        Wurde die Datei inzwischen von außen geändert oder ist sie gesperrt → Fehler, nichts überschrieben."""
+        if not self.kann_speichern:
+            raise pe.PdfFehler("Diese Datei kann nur über „Speichern unter…“ gespeichert werden.")
+        if not self.original.exists():
+            raise pe.PdfFehler(f"{self.original.name} existiert nicht mehr – bitte „Speichern unter…“ verwenden.")
+        if self.extern_geaendert():
+            raise ExternGeaendert(f"{self.original.name} wurde während der Bearbeitung von einem anderen Programm "
+                                  "geändert. Nicht überschrieben – bitte „Speichern unter…“ verwenden.")
+        erg = self._schreiben(self.original, pruefen_ocr)
+        self._basis = _fingerabdruck(self.original)
+        return erg
+
+    def _schreiben(self, ziel: Path, pruefen_ocr: bool) -> Speicherergebnis:
+        erg = Speicherergebnis(ziel)
+        if self.schwaerzungen:
+            erg.entfernt = pe.nach_schwaerzung_bereinigen(self.doc)
+        tmp = pe.temp_neben(ziel)
+        try:
+            pe.sicher_speichern(self.doc, tmp)
+            if self.schwaerzungen:                   # Prüfung VOR dem Ersetzen: schlechte Datei kommt nie ans Ziel
+                erg.pruefung = pe.schwaerzung_pruefen(tmp, self.schwaerzungen, ocr=pruefen_ocr)
+                if not erg.pruefung["bestanden"]:
+                    raise pe.PdfFehler("Schwärzungsprüfung fehlgeschlagen – nicht gespeichert:\n"
+                                       + _pruefung_text(erg.pruefung))
+            pe.ersetzen(tmp, ziel)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+        self.geaendert = False
+        return erg
+
     def speichern_unter(self, ziel: Path, pruefen_ocr: bool = True) -> Speicherergebnis:
         ziel = Path(ziel)
         if ziel.suffix.lower() != ".pdf":
             ziel = ziel.with_suffix(".pdf")
-        if self.original and ziel.resolve() == self.original.resolve():
-            raise pe.PdfFehler("Das Original bleibt unverändert – bitte einen neuen Dateinamen wählen.")
-        erg = Speicherergebnis(ziel)
-        if self.schwaerzungen:
-            erg.entfernt = pe.nach_schwaerzung_bereinigen(self.doc)
-        pe.sicher_speichern(self.doc, ziel)
-        if self.schwaerzungen:
-            erg.pruefung = pe.schwaerzung_pruefen(ziel, self.schwaerzungen, ocr=pruefen_ocr)
-            if not erg.pruefung["bestanden"]:
-                raise pe.PdfFehler("Schwärzungsprüfung fehlgeschlagen – Datei bitte nicht verwenden:\n"
-                                   + _pruefung_text(erg.pruefung))
-        self.geaendert = False
+        if self.original and ziel.exists() and ziel.resolve() == self.original.resolve() and self.kann_speichern:
+            return self.speichern(pruefen_ocr)
+        erg = self._schreiben(ziel, pruefen_ocr)
+        self.original, self.name = ziel, ziel.name          # weitere „Speichern“ gehen in die neue Datei
+        self._basis = _fingerabdruck(ziel)
         return erg
 
     def als_bytes(self) -> bytes:
         return self.doc.tobytes(garbage=4, deflate=True)
+
+
+class ExternGeaendert(pe.PdfFehler):
+    """Datei wurde während der Bearbeitung extern geändert – nicht überschrieben."""
+
+
+def _fingerabdruck(pfad: Path) -> str:
+    try:
+        return hashlib.sha256(Path(pfad).read_bytes()).hexdigest()
+    except OSError:
+        return "?"
 
 
 def _pruefung_text(p: dict) -> str:

@@ -11,7 +11,7 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShor
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
     QHeaderView, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from core.extractor import is_valid_email
@@ -244,7 +244,8 @@ class MainWindow(QMainWindow):
         self.start_seite = self._build_start_seite()
         self.tabs.addTab(self.start_seite, "Start")
         self.arbeit_seite = self._seite("Versicherungsschreiben vorbereiten",
-                                        "Word-Schreiben an eine Versicherung → PDF/A → E-Mail-Entwurf (wird nie gesendet).",
+                                        "Schreiben (Word oder PDF) hier bearbeiten → „Starten“ erstellt PDF/A und "
+                                        "E-Mail-Entwurf (wird nie gesendet).",
                                         self._build_work_tab(), zurueck=True)
         self.tabs.addTab(self.arbeit_seite, "Bearbeiten")
         # Anlagen-Assistent wird erst beim ersten Öffnen aufgebaut (PDF-Bibliothek nicht beim Start laden)
@@ -259,6 +260,15 @@ class MainWindow(QMainWindow):
         self.akten_seite = self._seite("Akten", "Versicherungsakten: Schreiben, Antworten und E-Mails an Mandanten.",
                                        self.akten_tab)
         self.tabs.addTab(self.akten_seite, "Akten")
+        from .stammdaten_tab import MandantenTab, VersicherungenTab
+        self.mandanten_tab = MandantenTab(ctx, self.akte_oeffnen)
+        self.mandanten_seite = self._seite("Mandanten", "Personen und Firmen – mit ihren Akten. Änderungen werden "
+                                           "automatisch gespeichert.", self.mandanten_tab)
+        self.tabs.addTab(self.mandanten_seite, "Mandanten")
+        self.versicherungen_tab = VersicherungenTab(ctx, self.akte_oeffnen)
+        self.versicherungen_seite = self._seite("Versicherungen", "Versicherer mit Anschrift und E-Mail-Adressen "
+                                                "(zugleich das Versicherer-Adressbuch).", self.versicherungen_tab)
+        self.tabs.addTab(self.versicherungen_seite, "Versicherungen")
         self.verlauf_tab = self._build_history_tab()
         self.einst_seite = self._build_einst_seite()
         self.tabs.addTab(self.einst_seite, "Einstellungen")
@@ -267,9 +277,11 @@ class MainWindow(QMainWindow):
         self.nav = QListWidget()
         self.nav.setObjectName("navigation")
         self.nav.setIconSize(QSize(20, 20))
-        self._nav_seiten = [self.start_seite, self.anlagen_huelle, self.pdf_seite, self.akten_seite, self.einst_seite]
+        self._nav_seiten = [self.start_seite, self.anlagen_huelle, self.pdf_seite, self.akten_seite,
+                            self.mandanten_seite, self.versicherungen_seite, self.einst_seite]
         for i, (text, ic) in enumerate((("Start", "start"), ("Anlagen", "anlagen"), ("PDF-Editor", "pdf"),
-                                        ("Akten", "akten"), ("Einstellungen", "einstellungen"))):
+                                        ("Akten", "akten"), ("Mandanten", "kanzlei"), ("Versicherungen", "adressbuch"),
+                                        ("Einstellungen", "einstellungen"))):
             it = QListWidgetItem(theme.icon(ic, "titel"), text)
             it.setToolTip(f"{text} (Strg+{i + 1})")
             self.nav.addItem(it)
@@ -326,6 +338,10 @@ class MainWindow(QMainWindow):
         w = self.tabs.widget(i)
         if w is self.akten_seite:
             self.akten_tab.laden()
+        elif w is self.mandanten_seite:
+            self.mandanten_tab.laden()
+        elif w is self.versicherungen_seite:
+            self.versicherungen_tab.laden()
         elif w is self.einst_seite:
             self.refresh_history()
         elif w is self.anlagen_huelle:
@@ -444,8 +460,9 @@ class MainWindow(QMainWindow):
         reihe.setSpacing(16)
         reihe.addWidget(self._aufgabe("kanzlei", "Kanzleidaten", "Name, Anschrift, E-Mail und Logo für Signatur und Briefkopf.",
                                       "Kanzleidaten…", self.kanzleidaten_bearbeiten))
-        reihe.addWidget(self._aufgabe("adressbuch", "Versicherer-Adressbuch", "E-Mail-Adressen der Versicherer pflegen.",
-                                      "Versicherer-Adressbuch…", self.adressbuch_bearbeiten))
+        reihe.addWidget(self._aufgabe("adressbuch", "Versicherungen", "Versicherer mit Anschrift und E-Mail-Adressen "
+                                      "(Versicherer-Adressbuch).", "Versicherungen öffnen",
+                                      self.adressbuch_bearbeiten))
         reihe.addWidget(self._aufgabe("info", "Programm", f"Version {__version__}. Updates werden nur angezeigt, nie "
                                       "automatisch installiert.", "Nach Updates suchen",
                                       lambda: self.update_pruefen(manuell=True)))
@@ -500,13 +517,10 @@ class MainWindow(QMainWindow):
         from .pdf_editor import PdfEditor
         from .pdf_ui import AnhangVorschau
         ed = PdfEditor(self, pdf, sprachen=tuple(self.cfg.get("ocr_sprachen", SPRACHEN)))
-        ed.exec()
-        wahl = ed.gespeichert or pdf
-        dlg = AnhangVorschau(self, [(wahl, "bearbeitete Fassung" if ed.gespeichert else "PDF aus Word (unverändert)",
-                                     True)], "Anhang für den Entwurf")
-        if dlg.exec() != QDialog.Accepted or not dlg.auswahl():
-            raise AbbruchDurchNutzer()
-        return wahl
+        if ed.exec() != QDialog.Accepted:
+            raise AbbruchDurchNutzer()           # „Abbrechen“ im Editor = kein Entwurf
+        _ = AnhangVorschau
+        return ed.gespeichert or pdf
 
     def titel_aktualisieren(self):
         k = self.ctx.kanzlei
@@ -568,7 +582,12 @@ class MainWindow(QMainWindow):
                           f"Daten: {self.ctx.kanzlei_store.ordner}")
 
     def adressbuch_bearbeiten(self):
-        AdressbuchDialog(self, self.ctx.adressbuch).exec()
+        """Ein Ort für Versicherer: die Seite „Versicherungen“ (E-Mails = Adressbuch)."""
+        self.tabs.setCurrentWidget(self.versicherungen_seite)
+
+    def akte_oeffnen(self, referenz: str):
+        self.tabs.setCurrentWidget(self.akten_seite)
+        self.akten_tab.akte_waehlen(referenz)
 
     def kanzleidaten_bearbeiten(self, erster_start: bool = False):
         if KanzleiDialog(self, self.ctx.kanzlei_store, erster_start).exec() == QDialog.Accepted:
@@ -576,39 +595,59 @@ class MainWindow(QMainWindow):
 
     # --- İş sekmesi ---
     def _build_work_tab(self) -> QWidget:
+        """Links die Schreiben (Word oder PDF), rechts das gewählte Schreiben zum Bearbeiten mit Vorschau.
+        „Starten“ speichert offene Änderungen automatisch und nutzt den zuletzt gespeicherten Text."""
+        from .dokument_editor import WordBearbeiter
         w = theme.karte(QFrame())
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(22, 18, 22, 18)
+        lay.setContentsMargins(18, 14, 18, 14)
         lay.setSpacing(8)
 
         self.wf_box = QComboBox()
         for wf in self.workflows:
             self.wf_box.addItem(wf.name)
-        lay.addWidget(QLabel("Vorgang:"))
-        lay.addWidget(self.wf_box)
+        if len(self.workflows) > 1:                  # nur ein Vorgang → keine unnötige Auswahl
+            lay.addWidget(QLabel("Vorgang:"))
+            lay.addWidget(self.wf_box)
+        else:
+            self.wf_box.hide()
 
-        lay.addWidget(QLabel("Word-Dokumente hierher ziehen oder auswählen:"))
+        split = QSplitter()
+        links = QWidget()
+        ll = QVBoxLayout(links)
+        ll.setContentsMargins(0, 0, 8, 0)
+        ll.addWidget(theme.rolle(QLabel("Schreiben (Word oder PDF) – hierher ziehen"), "gedimmt"))
         self.files = DropList(self.add_files)
-        self.files.setToolTip("Word-Dateien (.docx) aus dem Explorer hierher ziehen")
-        lay.addWidget(self.files)
-
+        self.files.setToolTip("Word- oder PDF-Dateien aus dem Explorer hierher ziehen")
+        self.files.currentItemChanged.connect(self._schreiben_gewaehlt)
+        ll.addWidget(self.files, 1)
         row = QHBoxLayout()
         b_add = QPushButton("Dateien wählen…")
         b_add.clicked.connect(self.pick_files)
-        b_clear = QPushButton("Liste leeren")
-        b_clear.clicked.connect(self.files.clear)
+        b_weg = QPushButton("Entfernen")
+        b_weg.clicked.connect(self._schreiben_entfernen)
+        row.addWidget(b_add)
+        row.addWidget(b_weg)
+        ll.addLayout(row)
+        split.addWidget(links)
+        self.word_ed = WordBearbeiter(lambda fn, frist: im_hintergrund(fn, frist),
+                                      float(self.cfg.get("word_zeitlimit_sekunden", 90)))
+        split.addWidget(self.word_ed)
+        split.setStretchFactor(1, 1)
+        split.setSizes([250, 900])
+        lay.addWidget(split, 1)
+
+        row = QHBoxLayout()
+        self.cb_pdf_pruefen = QCheckBox("PDF vor dem Entwurf im PDF-Editor prüfen/bearbeiten")
+        row.addWidget(self.cb_pdf_pruefen)
+        row.addStretch(1)
         self.b_run = QPushButton("&Starten")
         theme.rolle(self.b_run, "primaer")
         self.b_run.setDefault(True)
+        self.b_run.setToolTip("Speichert offene Änderungen und erstellt PDF/A + E-Mail-Entwurf")
         self.b_run.clicked.connect(self.run_all)
-        row.addWidget(b_add)
-        row.addWidget(b_clear)
-        row.addStretch(1)
         row.addWidget(self.b_run)
         lay.addLayout(row)
-
-        self.cb_pdf_pruefen = QCheckBox("PDF vor dem Entwurf im PDF-Editor prüfen/bearbeiten")
-        lay.addWidget(self.cb_pdf_pruefen)
 
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -618,23 +657,108 @@ class MainWindow(QMainWindow):
     def current_workflow(self) -> Workflow:
         return self.workflows[self.wf_box.currentIndex()]
 
+    def _schreiben_gewaehlt(self, neu, alt):
+        if neu is None:
+            return
+        if alt is not None and self.word_ed.pfad is not None and not self.word_ed.schliessen_ok():
+            self.files.blockSignals(True)
+            self.files.setCurrentItem(alt)
+            self.files.blockSignals(False)
+            return
+        quelle = neu.data(Qt.UserRole + 1)
+        self.b_run.setEnabled(False)                 # während Word das Dokument öffnet nicht starten
+        try:
+            self.word_ed.laden(Path(neu.data(Qt.UserRole)), Path(quelle) if quelle else None)
+        finally:
+            self.b_run.setEnabled(True)
+
+    def _schreiben_entfernen(self):
+        it = self.files.currentItem()
+        if it is None or not self.word_ed.schliessen_ok():
+            return
+        self.files.takeItem(self.files.row(it))
+        if not self.files.count():
+            self.word_ed.pfad = None
+            self.word_ed.absaetze = []
+            self.word_ed.text.clear()
+            self.word_ed.vorschau.clear()
+            self.word_ed.l_datei.setText("Kein Dokument ausgewählt")
+
+    def _pdf_als_word(self, pdf: Path) -> Path | None:
+        """PDF → Word-Arbeitskopie neben dem PDF (vorhandene wird wiederverwendet), im Archiv verknüpft."""
+        from core import pdf_engine as pe
+        from core import word_dokument as wd
+        from .pdf_ui import im_thread
+        vorhanden = self.ctx.archiv.arbeitskopie(pdf)
+        if vorhanden:
+            theme.status_setzen(self.status, None, f"Vorhandene Word-Arbeitskopie geöffnet: {vorhanden.name}")
+            return vorhanden
+        sprachen = tuple(self.cfg.get("ocr_sprachen", pe.SPRACHEN))
+
+        def ocr(page):
+            png, rueck = pe.ocr_bild(page)
+            worte = pe.worte_bilden(im_thread(lambda: pe.ocr_erkennen(png, 300, sprachen)), rueck)
+            absaetze: dict = {}
+            for w_ in worte:
+                absaetze.setdefault(w_.zeile[:2], []).append(w_.text)
+            return [" ".join(x) for x in absaetze.values()]
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            theme.status_setzen(self.status, None, f"⏳ {pdf.name}: wird in ein Word-Dokument umgewandelt …")
+            QGuiApplication.processEvents()
+            ziel, art = wd.pdf_zu_word(pdf, wd.arbeitskopie_name(pdf), ocr=ocr if pe.tesseract_ordner() else None)
+        except Exception as e:  # noqa: BLE001
+            QGuiApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "PDF → Word", f"{pdf.name}:\n{e}")
+            return None
+        QGuiApplication.restoreOverrideCursor()
+        self.ctx.archiv.erfassen(pdf)
+        self.ctx.archiv.erfassen(ziel, rolle="umgewandelt", quelle=pdf,
+                                 notiz="Word-Arbeitskopie (" + ("Texterkennung" if art == "ocr" else "Textebene") + ")")
+        theme.status_setzen(self.status, "warn", f"{pdf.name} → {ziel.name} (Word-Arbeitskopie). Layout kann "
+                            "vom PDF abweichen – rechts „Original-PDF“ zum Vergleich.")
+        return ziel
+
     def add_files(self, paths: list[Path]):
         wf = self.current_workflow()
-        existing = {self.files.item(i).text() for i in range(self.files.count())}
+        existing = {self.files.item(i).data(Qt.UserRole) for i in range(self.files.count())}
+        letztes = None
         for p in paths:
-            if p.is_file() and wf.accepts(p) and str(p) not in existing:
-                self.files.addItem(str(p))
-                self.tabs.setCurrentWidget(self.arbeit_seite)
+            p = Path(p)
+            if not p.is_file() or p.name.startswith("~$"):
+                continue
+            quelle = None
+            if p.suffix.lower() == ".pdf":
+                quelle, p = p, self._pdf_als_word(p)
+                if p is None:
+                    continue
+            if not wf.accepts(p) or str(p) in existing:
+                continue
+            it = QListWidgetItem(theme.icon("pdf" if quelle else "wort", "titel"),
+                                 f"{quelle.name}  →  Word" if quelle else p.name)
+            it.setToolTip(str(quelle or p) + (f"\nWord-Arbeitskopie: {p}" if quelle else ""))
+            it.setData(Qt.UserRole, str(p))
+            it.setData(Qt.UserRole + 1, str(quelle) if quelle else "")
+            self.files.addItem(it)
+            existing.add(str(p))
+            letztes = it
+        if letztes is not None:
+            self.tabs.setCurrentWidget(self.arbeit_seite)
+            self.files.setCurrentItem(letztes)
 
     def pick_files(self):
-        names, _ = QFileDialog.getOpenFileNames(self, "Dokumente wählen", "", "Word (*.docx *.doc)")
+        names, _ = QFileDialog.getOpenFileNames(self, "Schreiben wählen", "",
+                                                "Word oder PDF (*.docx *.doc *.pdf);;Word (*.docx *.doc);;PDF (*.pdf)")
         self.add_files([Path(n) for n in names])
 
     def run_all(self):
         wf = self.current_workflow()
-        paths = [Path(self.files.item(i).text()) for i in range(self.files.count())]
+        paths = [Path(self.files.item(i).data(Qt.UserRole)) for i in range(self.files.count())]
         if not paths:
             theme.status_setzen(self.status, "warn", "Keine Dokumente in der Liste.")
+            return
+        if self.word_ed.geaendert and not self.word_ed.speichern():      # letzter Stand wird verwendet
+            theme.status_setzen(self.status, "fehler", "Nicht gestartet: Änderungen konnten nicht gespeichert werden.")
             return
         zeit = float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90))
         # Word işi arka planda: pencere tepki vermeye devam eder, takılırsa süre sonunda biter
@@ -648,7 +772,6 @@ class MainWindow(QMainWindow):
             self.b_run.setEnabled(True)
         theme.status_setzen(self.status, "ok" if done == len(paths) else "warn",
                             f"{done} von {len(paths)} Dokument(en) bearbeitet." + (f" {self._letzte}" if self._letzte else ""))
-        self.files.clear()
 
     def _dokumente_bearbeiten(self, wf, paths: list[Path]) -> int:
         from core.word_service import WordService
@@ -682,6 +805,13 @@ class MainWindow(QMainWindow):
                     QGuiApplication.restoreOverrideCursor()
                 self.journal.add(wf.id, str(p), res.output, res.recipient, res.reference,
                                  "ok" if res.ok else "fehler", res.message)
+                try:                                        # Dokumentenarchiv: Schreiben + PDF zur Akte
+                    self.ctx.archiv.erfassen(p, akte=res.reference or "")
+                    if res.output:
+                        self.ctx.archiv.erfassen(Path(res.output), akte=res.reference or "", rolle="ausgang",
+                                                 quelle=p)
+                except Exception:  # noqa: BLE001 – Archiv darf den Ablauf nie stören
+                    pass
                 self._letzte = res.message
                 done += 1
             except AbbruchDurchNutzer:

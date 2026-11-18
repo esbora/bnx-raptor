@@ -1,8 +1,9 @@
 """Anlagen-Assistent: Schriftsatz + Anlagen auf einem Bildschirm zu einem Paket zusammenstellen.
 
-Ablauf: Dateien hineinziehen → Schriftsatz festlegen → Anlagen sortieren/benennen/prüfen →
-„Paket prüfen und erstellen…“ (eine Kontrollansicht) → einzelne PDFs + Anlagenverzeichnis.docx →
-optional „Outlook-Entwurf erstellen…“ (nur Entwurf, nie Versand).
+Ablauf: Dateien hineinziehen → (optional) Hauptdokument festlegen → Anlagen sortieren/benennen →
+„Paket erstellen“ (ohne Zwischenfenster) → einzelne PDFs + Anlagenverzeichnis.docx →
+optional „Outlook-Entwurf erstellen…“ (nur Entwurf, nie Versand). Doppelklick auf eine Vorschauseite
+öffnet die Anlage genau dort zum Bearbeiten; Speichern aktualisiert Vorschau und Angaben sofort.
 """
 from __future__ import annotations
 
@@ -23,6 +24,13 @@ from core.mail_service import MailDraft, MailError
 
 from . import theme
 from .pdf_ui import AnhangVorschau, im_thread, qpixmap
+
+
+def _gleiche_datei(a: Path, b: Path) -> bool:
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return str(a).lower() == str(b).lower()
 
 
 class AnlagenListe(QTreeWidget):
@@ -64,79 +72,6 @@ class AnlagenListe(QTreeWidget):
         QTimer.singleShot(0, self.umsortiert.emit)
 
 
-class KontrollDialog(QDialog):
-    """Eine Kontrollansicht vor dem Erstellen: Schriftsatz, Reihenfolge, Dateinamen, Seiten, Hinweise."""
-
-    def __init__(self, parent, schriftsatz: an.Eintrag | None, anlagen: list[an.Eintrag], bez: list[str],
-                 hinweise: list[an.Hinweis], ordner: Path, gesamt: bool):
-        super().__init__(parent)
-        self.setWindowTitle("Anlagenpaket prüfen – BnX-Raptor")
-        self.resize(1000, 620)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 18, 22, 16)
-        lay.addWidget(theme.ueberschrift("Anlagenpaket prüfen", "h2"))
-        lay.addWidget(theme.rolle(QLabel(f"Zielordner: {ordner}"), "gedimmt"))
-        t = QTableWidget(0, 5)
-        t.setHorizontalHeaderLabels(["Anlage", "Bezeichnung", "Quelldatei", "Ausgabedatei", "Seiten"])
-        t.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        zeilen = []
-        if schriftsatz:
-            zeilen.append(("Schriftsatz", schriftsatz.titel, schriftsatz.quelle.name, "Schriftsatz.pdf",
-                           "Word → PDF" if schriftsatz.art == "word" else str(schriftsatz.seiten), schriftsatz))
-        for e, b in zip(anlagen, bez):
-            zeilen.append((b, e.titel, e.quelle.name, an.dateiname(b),
-                           "Word → PDF" if e.art == "word" and e.daten is None else str(e.seiten) if e.ok else "–", e))
-        zeilen.append(("", "Anlagenverzeichnis (Word, bearbeitbar)", "", an.VERZEICHNIS, "", None))
-        if gesamt:
-            zeilen.append(("", "Gesamt-PDF nur zur internen Prüfung", "", an.GESAMT, "", None))
-        for z in zeilen:
-            r = t.rowCount()
-            t.insertRow(r)
-            for c, v in enumerate(z[:5]):
-                it = QTableWidgetItem(v)
-                if z[5] is not None and z[5].fehler:
-                    it.setForeground(QBrush(theme.status_farbe("fehler")))
-                t.setItem(r, c, it)
-        t.resizeColumnsToContents()
-        t.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        lay.addWidget(t, 2)
-        lay.addWidget(theme.ueberschrift("Hinweise", "h3"))
-        hl = QListWidget()
-        for h in hinweise:
-            art = "fehler" if h.stufe == "fehler" else "warn"
-            it = QListWidgetItem(theme.status_text(art, h.text))
-            it.setForeground(QBrush(theme.status_farbe(art)))
-            hl.addItem(it)
-        if not hinweise:
-            it = QListWidgetItem(theme.status_text("ok", "Keine Auffälligkeiten"))
-            it.setForeground(QBrush(theme.status_farbe("ok")))
-            hl.addItem(it)
-        lay.addWidget(hl, 1)
-        self.blockiert = an.blockiert(hinweise)
-        if self.blockiert:
-            m = QLabel()
-            theme.status_setzen(m, "fehler", "Das Paket kann nicht erstellt werden. Bitte die rot markierten Punkte "
-                                "beheben (z. B. beschädigte Datei entfernen).")
-            m.setWordWrap(True)
-            lay.addWidget(m)
-        elif any(h.art in ("identisch", "aehnlich") for h in hinweise):
-            m = QLabel()
-            theme.status_setzen(m, "warn", "Doppelte/ähnliche Dateien werden nicht automatisch entfernt – bitte selbst "
-                                "entscheiden („Zurück“ → Anlage auswählen → Entfernen).")
-            m.setWordWrap(True)
-            lay.addWidget(m)
-        bb = QDialogButtonBox()
-        self.ok = bb.addButton("&Erstellen", QDialogButtonBox.AcceptRole)
-        theme.rolle(self.ok, "primaer")
-        bb.addButton("&Zurück", QDialogButtonBox.RejectRole)
-        self.ok.setEnabled(not self.blockiert)
-        self.ok.setDefault(not self.blockiert)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-
 class AnlagenTab(QWidget):
     def __init__(self, ctx, hintergrund=None):
         super().__init__()
@@ -159,13 +94,18 @@ class AnlagenTab(QWidget):
         kopf = QHBoxLayout()
         kopf.addWidget(theme.ueberschrift("Anlagen-Assistent", "h1"))
         kopf.addSpacing(16)
-        kopf.addWidget(theme.rolle(QLabel("Schriftsatz:"), "gedimmt"))
-        self.l_schriftsatz = QLabel("— noch keiner (Word-Datei hineinziehen) —")
+        kopf.addWidget(theme.rolle(QLabel("Hauptdokument:"), "gedimmt"))
+        self.l_schriftsatz = QLabel(self.KEIN_HAUPT)
         self.l_schriftsatz.setProperty("rolle", "h3")
         kopf.addWidget(self.l_schriftsatz, 1)
-        self.b_als_schriftsatz = QPushButton("Auswahl als &Schriftsatz")
+        self.b_als_schriftsatz = QPushButton("Als Hauptdokument fe&stlegen")
+        self.b_als_schriftsatz.setToolTip("Dieses Dokument wird als Schriftsatz vor den Anlagen ausgegeben.")
         self.b_als_schriftsatz.clicked.connect(self.als_schriftsatz)
         kopf.addWidget(self.b_als_schriftsatz)
+        self.b_kein_haupt = QPushButton("Kein Hauptdokument")
+        self.b_kein_haupt.setToolTip("Hauptdokument wieder als normale Anlage in die Liste nehmen")
+        self.b_kein_haupt.clicked.connect(self.kein_hauptdokument)
+        kopf.addWidget(self.b_kein_haupt)
         b_neu = QPushButton("&Neu")
         b_neu.setToolTip("Liste leeren und neu beginnen")
         b_neu.clicked.connect(self.leeren)
@@ -192,6 +132,10 @@ class AnlagenTab(QWidget):
         self.liste.itemChanged.connect(self._titel_geaendert)
         self.liste.currentItemChanged.connect(lambda *_: self._vorschau())
         ll.addWidget(self.liste, 1)
+        haupt_info = theme.rolle(QLabel("„Als Hauptdokument festlegen“: Dieses Dokument wird als Schriftsatz vor "
+                                        "den Anlagen ausgegeben (optional)."), "gedimmt")
+        haupt_info.setWordWrap(True)
+        ll.addWidget(haupt_info)
         knoepfe = QGridLayout()
         for i, (text, fn) in enumerate((("▲ Nach oben", lambda: self.verschieben(-1)),
                                         ("▼ Nach unten", lambda: self.verschieben(1)),
@@ -209,7 +153,8 @@ class AnlagenTab(QWidget):
         l_vor = QLabel("&Vorschau")
         l_vor.setProperty("rolle", "h3")
         ml.addWidget(l_vor)
-        hinw = theme.rolle(QLabel("Seiten anklicken (Strg/Umschalt für mehrere), dann Seitenaktion wählen."), "gedimmt")
+        hinw = theme.rolle(QLabel("Doppelklick auf eine Seite: dort bearbeiten. Seiten anklicken (Strg/Umschalt "
+                                  "für mehrere), dann Seitenaktion wählen."), "gedimmt")
         hinw.setWordWrap(True)
         ml.addWidget(hinw)
         self.seiten = QListWidget()
@@ -221,6 +166,7 @@ class AnlagenTab(QWidget):
         self.seiten.setResizeMode(QListWidget.Adjust)
         self.seiten.setMovement(QListWidget.Static)
         self.seiten.setWordWrap(True)
+        self.seiten.itemDoubleClicked.connect(lambda it: self.im_editor(self.seiten.row(it)))
         ml.addWidget(self.seiten, 1)
         sk = QGridLayout()
         for i, (text, fn) in enumerate((("↻ &Drehen", lambda: self.seitenaktion("drehen")),
@@ -312,7 +258,7 @@ class AnlagenTab(QWidget):
         b_add.clicked.connect(self.dateien_waehlen)
         ul.addWidget(b_add)
         ul.addWidget(theme.rolle(QLabel("→"), "gedimmt"))
-        self.b_paket = QPushButton(theme.icon("paket", "primaer_text", 18), "  2  &Paket prüfen und erstellen…")
+        self.b_paket = QPushButton(theme.icon("paket", "primaer_text", 18), "  2  &Paket erstellen")
         theme.rolle(self.b_paket, "primaer")
         self.b_paket.clicked.connect(self.paket_erstellen)
         ul.addWidget(self.b_paket)
@@ -371,6 +317,7 @@ class AnlagenTab(QWidget):
 
     # ------------------------------------------------------------- Daten
     BITTE_WARTEN = " – bitte warten …"
+    KEIN_HAUPT = "— keines (optional) —"
 
     def setEnabled(self, an_: bool):
         """Sperren während längerer Arbeit (Word, OCR, Paket) – mit Hinweis im Fenstertitel.
@@ -415,6 +362,9 @@ class AnlagenTab(QWidget):
             self.setEnabled(True)
 
     def _hinzufuegen(self, pfade: list[Path]):
+        haupt = self.schriftsatz()
+        if haupt is not None:
+            pfade = [p for p in pfade if not _gleiche_datei(p, haupt.quelle)]
         neu = []
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -486,6 +436,13 @@ class AnlagenTab(QWidget):
 
     def _schriftsatz_setzen(self, e: an.Eintrag):
         self.schriftsatz_id = e.id
+        # gleiche Datei nicht zusätzlich als Anlage behalten
+        for i in reversed(range(self.liste.topLevelItemCount())):
+            it = self.liste.topLevelItem(i)
+            x = self.eintraege.get(it.data(0, Qt.UserRole))
+            if x is not None and x.id != e.id and _gleiche_datei(x.quelle, e.quelle):
+                self.liste.takeTopLevelItem(i)
+                self.eintraege.pop(x.id, None)
         art = "Word" if e.art == "word" else f"{e.seiten} S."
         self.l_schriftsatz.setText(f"<b>{e.quelle.name}</b> ({art})" + (f" – <span style='color:#b91c1c'>"
                                                                            f"{e.fehler}</span>" if e.fehler else ""))
@@ -507,13 +464,25 @@ class AnlagenTab(QWidget):
             self._word_umwandeln([alt])          # bisheriger Word-Schriftsatz wird jetzt Anlage
         self._geaendert()
 
+    def kein_hauptdokument(self):
+        """Hauptdokument ist optional: wieder als normale Anlage oben in die Liste (nichts geht verloren)."""
+        alt = self.schriftsatz()
+        if not alt:
+            return
+        self.schritte += 1
+        self.schriftsatz_id = None
+        self.l_schriftsatz.setText(self.KEIN_HAUPT)
+        self.liste.insertTopLevelItem(0, self._item(alt))
+        self._word_umwandeln([alt])
+        self._geaendert()
+
     def leeren(self):
         self.eintraege.clear()
         self.schriftsatz_id = None
         self.liste.clear()
         self.seiten.clear()
         self.ordner.clear()
-        self.l_schriftsatz.setText("— noch keiner (Word-Datei hineinziehen) —")
+        self.l_schriftsatz.setText(self.KEIN_HAUPT)
         self.schritte = 0
         self._geaendert()
 
@@ -569,12 +538,19 @@ class AnlagenTab(QWidget):
             it.setText(0, b)
             it.setText(1, e.titel)
             it.setText(3, "Word" if e.art == "word" and e.daten is None else (str(e.seiten) if e.ok else "–"))
-            eigene = [h for h in hinweise if e.id in h.ids]
+            eigene = [h for h in hinweise if e.id in h.ids and h.stufe != "info"]
+            info = [h for h in hinweise if e.id in h.ids and h.stufe == "info"]
             fehler = next((h for h in eigene if h.stufe == "fehler"), None)
-            text = ("✖ " + e.fehler) if fehler else ("⚠ " + ", ".join(sorted({
-                {"identisch": "identisch", "aehnlich": "ähnlich", "ausrichtung": "Seite gedreht?",
-                 "ocr": "OCR-Problem"}.get(h.art, h.art) for h in eigene})) if eigene else
-                ("✓ bearbeitet" if e.bearbeitet else "✓"))
+            if fehler:
+                text = "✖ wird nicht kopiert – " + e.fehler
+            elif e.fehler:
+                text = "⚠ " + an.ORIGINAL_TEXT
+            elif eigene:
+                text = "⚠ " + ", ".join(sorted({{"ausrichtung": "Seite gedreht?", "ocr": "OCR-Problem",
+                                                 "leer": "Bezeichnung fehlt"}.get(h.art, h.art) for h in eigene}))
+            else:
+                text = ("✓ bearbeitet" if e.bearbeitet else "✓") + (
+                    "  ℹ " + ("identisch" if any(h.art == "identisch" for h in info) else "ähnlich") if info else "")
             it.setText(4, text)
             for c in range(5):
                 if fehler or eigene:
@@ -584,9 +560,12 @@ class AnlagenTab(QWidget):
         self.liste.blockSignals(False)
         self.hinweise.clear()
         for h in hinweise:
-            art = "fehler" if h.stufe == "fehler" else "warn"
-            li = QListWidgetItem(theme.status_text(art, h.text))
-            li.setForeground(QBrush(theme.status_farbe(art)))
+            if h.stufe == "info":
+                li = QListWidgetItem("ℹ " + h.text)
+            else:
+                art = "fehler" if h.stufe == "fehler" else "warn"
+                li = QListWidgetItem(theme.status_text(art, h.text))
+                li.setForeground(QBrush(theme.status_farbe(art)))
             self.hinweise.addItem(li)
         if not hinweise and self.eintraege:
             li = QListWidgetItem(theme.status_text("ok", "Keine Hinweise – das Paket kann erstellt werden"))
@@ -608,10 +587,12 @@ class AnlagenTab(QWidget):
         self.seiten.clear()
         e = self.ausgewaehlt()
         if not e or not e.daten:
-            if e and e.art == "word":
-                self.seiten.addItem(QListWidgetItem("Word-Dokument – wird beim Erstellen in PDF umgewandelt"))
+            if e and e.fehler and an.lesbar(e):
+                self.seiten.addItem(QListWidgetItem(f"{an.ORIGINAL_TEXT}\n{e.quelle.name}\n({e.fehler})"))
             elif e and e.fehler:
-                self.seiten.addItem(QListWidgetItem(f"✖ {e.quelle.name}: {e.fehler}"))
+                self.seiten.addItem(QListWidgetItem(f"✖ {e.quelle.name}: wird nicht kopiert – {e.fehler}"))
+            elif e and e.art == "word":
+                self.seiten.addItem(QListWidgetItem("Word-Dokument – wird beim Erstellen in PDF umgewandelt"))
             return
         doc = e.dokument()
         for p in doc:
@@ -679,18 +660,23 @@ class AnlagenTab(QWidget):
                             + (f"; Probleme: {'; '.join(e.ocr_fehler)}" if e.ocr_fehler else "."))
         self._geaendert()
 
-    def im_editor(self):
+    def im_editor(self, seite: int | None = None):
+        """Anlage im Editor öffnen – bei Doppelklick in der Vorschau direkt auf dieser Seite im Werkzeug
+        „Text bearbeiten“. „Speichern“/„OK“ übernimmt sofort in diese Anlage (Vorschau + Angaben neu)."""
         e = self.ausgewaehlt()
         if not e or not e.daten:
             return
         from .pdf_editor import PdfEditor
-        ed = PdfEditor(self, daten=e.daten, name=f"{e.titel}.pdf", uebernehmen_text="In Anlage übernehmen",
-                       sprachen=tuple(self.cfg.get("ocr_sprachen", pe.SPRACHEN)))
-        if ed.exec() == QDialog.Accepted and ed.ergebnis_bytes:
-            import pymupdf
-            e.aktualisieren(pymupdf.open("pdf", ed.ergebnis_bytes), "im PDF-Editor bearbeitet")
+        import pymupdf
+
+        def uebernehmen(daten: bytes):
+            e.aktualisieren(pymupdf.open("pdf", daten), "im PDF-Editor bearbeitet")
             self.schritte += 1
             self._geaendert()
+        ed = PdfEditor(self, daten=e.daten, name=f"{e.titel}.pdf", uebernehmen_text="in die Anlage",
+                       sprachen=tuple(self.cfg.get("ocr_sprachen", pe.SPRACHEN)),
+                       start_seite=seite or 0, text_modus=seite is not None, bei_speichern=uebernehmen)
+        ed.exec()
 
     # ------------------------------------------------------------- Paket
     def ordner_waehlen(self):
@@ -699,30 +685,29 @@ class AnlagenTab(QWidget):
             self.ordner.setText(d)
 
     def paket_erstellen(self):
+        """Direkt erstellen – ohne Prüffenster. Fehlt der Zielordner, öffnet sich sofort die Ordnerauswahl."""
         s, anl, bez = self.schriftsatz(), self.anlagen(), self.bezeichnungen()
-        ordner = Path(self.ordner.text().strip()) if self.ordner.text().strip() else None
-        hinweise = an.pruefen(s, anl)
-        if ordner is None:
-            hinweise.append(an.Hinweis("fehler", "leer", "Kein Zielordner gewählt."))
-        self.schritte += 1
-        dlg = KontrollDialog(self, s, anl, bez, hinweise, ordner or Path("—"), self.gesamt.isChecked())
-        if dlg.exec() != QDialog.Accepted or dlg.blockiert:
-            self.status.setText("Paket nicht erstellt." + (" Bitte rot markierte Punkte beheben."
-                                                           if dlg.blockiert else ""))
+        if not s and not anl:
+            self.status.setText("Keine Dateien in der Liste.")
             return
+        if not self.ordner.text().strip():
+            self.ordner_waehlen()
+            if not self.ordner.text().strip():
+                self.status.setText("Kein Zielordner gewählt – Paket nicht erstellt.")
+                return
+        ordner = Path(self.ordner.text().strip())
         self.schritte += 1
         from core.word_service import WordService
-        if s.art == "word" and WordService.unsaved_in_running_word(s.quelle):
+        if s and s.art == "word" and WordService.unsaved_in_running_word(s.quelle):
             QMessageBox.warning(self, "Nicht gespeichert", f"{s.quelle.name} ist in Word geöffnet und nicht "
                                                           "gespeichert. Bitte zuerst speichern.")
             return
-        word_zu_pdf = self._word_zu_pdf
         umbenennen = False
         while True:
             self.setEnabled(False)
             QGuiApplication.setOverrideCursor(Qt.WaitCursor)
             try:
-                paket = an.paket_erstellen(ordner, s, anl, bez, word_zu_pdf, self.gesamt.isChecked(),
+                paket = an.paket_erstellen(ordner, s, anl, bez, self._word_zu_pdf, self.gesamt.isChecked(),
                                            umbenennen_erlaubt=umbenennen,
                                            fortschritt=lambda t: (self.status.setText(t),
                                                                   QGuiApplication.processEvents()))
@@ -741,10 +726,21 @@ class AnlagenTab(QWidget):
                 umbenennen = True
                 continue
             except Exception as ex:  # noqa: BLE001
-                self.ctx.journal.add("anlagen", str(s.quelle), status="fehler", meldung=str(ex), art="anlagen")
-                QMessageBox.critical(self, "Paket nicht erstellt",
-                                     f"Das Paket wurde NICHT erstellt (keine Dateien abgelegt):\n\n{ex}")
-                self.status.setText("✖ Paket nicht erstellt – siehe Meldung.")
+                QGuiApplication.restoreOverrideCursor()
+                self.setEnabled(True)
+                self.ctx.journal.add("anlagen", str(s.quelle if s else ordner), status="fehler", meldung=str(ex),
+                                     art="anlagen")
+                box = QMessageBox(QMessageBox.Critical, "Paket nicht erstellt",
+                                  "Das Paket wurde NICHT erstellt. Es wurden keine Dateien abgelegt; vorhandene "
+                                  f"Dateien im Zielordner sind unverändert.\n\n{ex}\n\nIhre Auswahl bleibt erhalten.",
+                                  parent=self)
+                b_neu = box.addButton("Erneut versuchen", QMessageBox.AcceptRole)
+                box.addButton("Schließen", QMessageBox.RejectRole)
+                box.setDefaultButton(b_neu)
+                box.exec()
+                theme.status_setzen(self.status, "fehler", "Paket nicht erstellt – " + str(ex).splitlines()[0])
+                if box.clickedButton() is b_neu:
+                    continue
                 return
             finally:
                 if QGuiApplication.overrideCursor():
@@ -753,19 +749,41 @@ class AnlagenTab(QWidget):
         self.paket = paket
         self.b_outlook.setEnabled(True)
         self.b_ordner.setEnabled(True)
-        namen = ", ".join(d.pfad.name for d in paket.dateien)
-        self.ctx.journal.add("anlagen", str(s.quelle), str(paket.ordner), meldung=namen, art="anlagen")
-        self.status.setText(f"<b style='color:#15803d'>✓ Paket fertig</b> ({len(paket.dateien)} Dateien) in "
-                            f"{paket.ordner}: {namen}")
+        namen = ", ".join(d.pfad.name for d in paket.dateien if d.rolle != "fehlt")
+        self.ctx.journal.add("anlagen", str(s.quelle if s else ordner), str(paket.ordner),
+                             meldung=namen + ("\n" + "\n".join(paket.hinweise) if paket.hinweise else ""),
+                             art="anlagen")
+        archiv = getattr(self.ctx, "archiv", None)
+        if archiv is not None:
+            for d in paket.dateien:
+                if d.rolle != "fehlt":
+                    try:
+                        archiv.erfassen(d.pfad, rolle="paket", notiz=f"{d.bezeichnung}: {d.titel}")
+                    except Exception:  # noqa: BLE001
+                        pass
+        self._geaendert()
+        self.paket = paket                                   # _geaendert() setzt es zurück – hier gilt es
+        self.b_outlook.setEnabled(True)
+        self.b_ordner.setEnabled(True)
+        text = f"Paket erstellt ({len([d for d in paket.dateien if d.rolle != 'fehlt'])} Dateien) in {paket.ordner}"
+        if paket.hinweise:
+            theme.status_setzen(self.status, "warn", text + " – " + " · ".join(paket.hinweise))
+            for h in paket.hinweise:
+                li = QListWidgetItem(theme.status_text("warn" if "NICHT" not in h else "fehler", h))
+                li.setForeground(QBrush(theme.status_farbe("warn" if "NICHT" not in h else "fehler")))
+                self.hinweise.insertItem(0, li)
+        else:
+            theme.status_setzen(self.status, "ok", text)
 
     def outlook(self):
         if not self.paket:
             return
         self.schritte += 1
         dateien = [(d.pfad, ("Schriftsatz" if d.rolle == "schriftsatz" else
-                             f"{d.bezeichnung}: {d.titel}" if d.rolle == "anlage" else
+                             f"{d.bezeichnung}: {d.titel}" if d.rolle in ("anlage", "original") else
                              "Anlagenverzeichnis (Word)" if d.rolle == "verzeichnis" else "nur intern"),
-                    d.rolle in ("schriftsatz", "anlage")) for d in self.paket.dateien]
+                    d.rolle in ("schriftsatz", "anlage", "original")) for d in self.paket.dateien
+                   if d.rolle != "fehlt"]
         dlg = AnhangVorschau(self, dateien, "Anhänge für den Outlook-Entwurf")
         if dlg.exec() != QDialog.Accepted:
             return
@@ -781,7 +799,7 @@ class AnlagenTab(QWidget):
         from core.entwurf import entwurf_erstellen
         try:
             msg = entwurf_erstellen(self.ctx, MailDraft(
-                to="", subject=an.mail_betreff(self.schriftsatz().titel, bez),
+                to="", subject=an.mail_betreff(self.schriftsatz().titel if self.schriftsatz() else "Anlagen", bez),
                 html_body=an.mail_text(gewaehlt), attachments=[p for p, _ in auswahl]),
                 self.paket.ordner, anhaenge_pruefen=True)
         except MailError as ex:

@@ -105,3 +105,34 @@ def docx_tabelle_lesen(pfad: Path) -> list[list[str]]:
         zeilen.append([unescape("".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", c, re.S)))
                        for c in zellen])
     return zeilen
+
+
+def docx_absaetze(ziel: Path, absaetze: list[str], titel: str = "") -> Path:
+    """Nur Absätze (z. B. OCR-Text eines Scans als bearbeitbares Word-Dokument)."""
+    koerper = ("".join(_absatz(a) for a in absaetze) or "<w:p/>") + \
+        '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1134" ' \
+        'w:left="1417" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>'
+    dokument = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                f"<w:body>{koerper}</w:body></w:document>")
+    ziel = Path(ziel)
+    with zipfile.ZipFile(ziel, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        z.writestr("_rels/.rels", _RELS)
+        z.writestr("word/_rels/document.xml.rels", _DOC_RELS)
+        z.writestr("word/document.xml", dokument)
+        z.writestr("word/styles.xml", _STYLES)
+        z.writestr("docProps/core.xml", _CORE.format(titel=escape(titel or ziel.stem)))
+    return ziel
+
+
+def docx_text(pfad: Path, max_zeichen: int = 4000) -> str:
+    """Schnelle Textvorschau ohne Word (Absätze aus word/document.xml)."""
+    import re
+    from xml.sax.saxutils import unescape
+    with zipfile.ZipFile(pfad) as z:
+        xml = z.read("word/document.xml").decode("utf-8", "replace")
+    absaetze = []
+    for p in re.findall(r"<w:p[ >].*?</w:p>|<w:p/>", xml, re.S):
+        absaetze.append(unescape("".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", p, re.S))))
+    return "\n".join(absaetze)[:max_zeichen]

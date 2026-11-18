@@ -87,7 +87,7 @@ def sicher_speichern(doc: pymupdf.Document, ziel: Path) -> Path:
     Kayıt yarıda kalırsa mevcut dosya bozulmaz. Artımlı kayıt yok: eski sürümler dosyada kalmaz.
     """
     ziel = Path(ziel)
-    tmp = ziel.with_name(ziel.stem + ".bnx-tmp.pdf")
+    tmp = temp_neben(ziel)
     try:
         doc.subset_fonts()            # eklenen yazı tiplerinden yalnızca kullanılan karakterler kalır
     except Exception:  # noqa: BLE001 – alt küme oluşturulamazsa tam yazı tipiyle kaydet
@@ -97,11 +97,36 @@ def sicher_speichern(doc: pymupdf.Document, ziel: Path) -> Path:
         with pymupdf.open(tmp) as probe:
             if probe.page_count != doc.page_count:
                 raise PdfFehler("Die gespeicherte Datei ist unvollständig.")
-        os.replace(tmp, ziel)
+        ersetzen(tmp, ziel)
     finally:
         if tmp.exists():
             tmp.unlink()
     return ziel
+
+
+def temp_neben(ziel: Path) -> Path:
+    """Versteckter Temp-Name im Zielordner (gleiches Laufwerk → Ersetzen ist ein Umbenennen)."""
+    import uuid
+    return Path(ziel).with_name(f".~{Path(ziel).stem}.{uuid.uuid4().hex[:6]}.bnx-tmp{Path(ziel).suffix}")
+
+
+def ersetzen(tmp: Path, ziel: Path, versuche: int = 8, pause: float = 0.25, warte=None) -> None:
+    """Fertige, geprüfte Temp-Datei an die Stelle von `ziel` setzen. Kurze Sperren (OneDrive, Virenscanner,
+    Vorschau im Explorer) werden abgewartet; bleibt die Datei gesperrt, gibt es eine klare Meldung –
+    die vorhandene Datei bleibt dann unverändert."""
+    import time
+    warte = warte or time.sleep
+    letzter = None
+    for i in range(versuche):
+        try:
+            os.replace(tmp, ziel)
+            return
+        except PermissionError as e:
+            letzter = e
+            warte(pause * (i + 1))
+    raise PdfFehler(f"{Path(ziel).name} ist gesperrt (z. B. in einem anderen Programm geöffnet oder wird gerade "
+                    f"von OneDrive synchronisiert) – nicht gespeichert, die Datei ist unverändert. "
+                    f"Bitte schließen und erneut speichern. [{letzter}]")
 
 
 # ---------------------------------------------------------------- Seiten
@@ -342,7 +367,9 @@ def _blocktext(b: dict) -> str:
 
 
 def textbloecke(page) -> list[dict]:
-    return [b for b in page.get_text("dict")["blocks"] if b["type"] == 0 and _blocktext(b)]
+    """Textblöcke in Lesereihenfolge (oben → unten, links → rechts) – auch nach Änderungen stabil."""
+    bl = [b for b in page.get_text("dict")["blocks"] if b["type"] == 0 and _blocktext(b)]
+    return sorted(bl, key=lambda b: (round(b["bbox"][1], 0), b["bbox"][0]))
 
 
 def block_an(page, punkt) -> dict | None:
@@ -710,6 +737,117 @@ def scan_wort_ersetzen(page, alt: str, neu: str, rect: pymupdf.Rect | None = Non
     erg = Aenderung(rect=rect, schrift=f"{font.name} {fs:.1f} pt")
     if font.text_length(neu, fontsize=fs) > rect.width * 1.15:
         erg.warnungen.append("Neues Wort ist deutlich breiter als das alte – Überlappung prüfen")
+    return erg
+
+
+# ---------------------------------------------------------------- Scan: ganzen Absatz ersetzen (0.4.1)
+def block_ist_ocr(page, b: dict) -> bool:
+    """Block besteht nur aus unsichtbarem OCR-Text (render mode 3) über einem Scanbild?"""
+    r = pymupdf.Rect(b["bbox"])
+    trace = [t for t in page.get_texttrace() if pymupdf.Rect(t["bbox"]).intersects(r)]
+    return bool(trace) and all(t.get("type") == 3 for t in trace)
+
+
+def block_finden(page, index: int, bbox) -> dict | None:
+    """Block wiederfinden: zuerst Index, dann größte Überdeckung mit der gemerkten Box.
+    So bleibt bei zwei gleichen Absätzen der gewählte Absatz gewählt."""
+    bloecke = textbloecke(page)
+    ziel = pymupdf.Rect(bbox)
+    if 0 <= index < len(bloecke) and pymupdf.Rect(bloecke[index]["bbox"]) == ziel:
+        return bloecke[index]
+    beste, wert = None, 0.0
+    for b in bloecke:
+        r = pymupdf.Rect(b["bbox"])
+        schnitt = (r & ziel).get_area() if r.intersects(ziel) else 0
+        anteil = schnitt / max(min(r.get_area(), ziel.get_area()), 1)
+        if anteil > wert:
+            beste, wert = b, anteil
+    return beste if wert >= 0.6 else None
+
+
+def _scan_flaechen_leeren(page, rects: list[pymupdf.Rect]) -> tuple[float, float, float]:
+    """Pixel unter den Rechtecken im Scanbild mit der Hintergrundfarbe füllen; gibt die Schriftfarbe zurück."""
+    doc = page.parent
+    gesamt = pymupdf.Rect(rects[0])
+    for r in rects[1:]:
+        gesamt |= r
+    xref, trafo = _bild_auf_seite(page, gesamt)
+    pix = pymupdf.Pixmap(doc, xref)
+    if pix.alpha or pix.n not in (1, 3):
+        pix = pymupdf.Pixmap(pymupdf.csRGB if pix.n >= 3 else pymupdf.csGRAY, pix, 0)
+    n = pix.n
+    innen_alle = [_pixelrechteck(pix, r, trafo, 2) for r in rects]
+    aussen = _pixelrechteck(pix, gesamt, trafo, 10)
+    hinter = [[] for _ in range(n)]
+    dunkel = []
+    schritt = max(1, (aussen.width * aussen.height) // 60000)        # große Absätze: Stichprobe
+    k = 0
+    for yy in range(aussen.y0, aussen.y1):
+        for xx in range(aussen.x0, aussen.x1):
+            k += 1
+            if k % schritt:
+                continue
+            px = pix.pixel(xx, yy)
+            if any(i.contains(pymupdf.Point(xx, yy)) for i in innen_alle):
+                dunkel.append(px)
+            else:
+                for i in range(n):
+                    hinter[i].append(px[i])
+    hg = tuple(_median(h) for h in hinter)
+    dunkel.sort(key=sum)
+    schrift_px = dunkel[: max(1, len(dunkel) // 15)] or [(0,) * n]
+    farbe = tuple(_median([p[i] for p in schrift_px]) / 255 for i in range(n))
+    farbe = farbe * 3 if n == 1 else farbe
+    for i in innen_alle:
+        pix.set_rect(i, hg)
+    if "DCTDecode" in doc.xref_get_key(xref, "Filter")[1]:
+        page.replace_image(xref, stream=pix.tobytes("jpeg", jpg_quality=90))
+    else:
+        page.replace_image(xref, pixmap=pix)
+    return farbe
+
+
+def scan_block_ersetzen(page, b: dict, neuer_text: str, groesse: float | None = None,
+                        farbe: tuple | None = None, ausrichtung: str | None = None,
+                        schrift: str = ERSATZ_SCHRIFT) -> Aenderung:
+    """Absatz in einem Scan ersetzen: alte Buchstaben werden aus dem Bild entfernt (Hintergrundfarbe),
+    der alte OCR-Text dieses Absatzes wird gelöscht und der neue Text als sichtbarer, durchsuchbarer Text
+    an dieselbe Stelle gesetzt. Andere Absätze bleiben unverändert."""
+    zeilen_r = [pymupdf.Rect(ln["bbox"]) for ln in b["lines"]]
+    erg = Aenderung(rect=pymupdf.Rect(b["bbox"]))
+    erkannt = _scan_flaechen_leeren(page, [r + (-1, -1, 1, 1) for r in zeilen_r])
+    for r in zeilen_r:                                    # alten OCR-Text nur in diesem Absatz entfernen
+        h = r.height * 0.2
+        page.add_redact_annot(pymupdf.Rect(r.x0, r.y0 + h, r.x1, r.y1 - h), fill=False)
+    page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                          graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+                          text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+    if not neuer_text.strip():
+        erg.schrift = "–"
+        return erg
+    hoehen = sorted(r.height for r in zeilen_r)
+    fs = groesse or max(6.0, round(hoehen[len(hoehen) // 2] / 1.25, 1))
+    font = schrift_laden(schrift)
+    erg.schrift = f"{font.name} {fs:.1f} pt (Scan)"
+    links, rechts = b["bbox"][0], b["bbox"][2]
+    breite = max(rechts - links, 40)
+    if len(zeilen_r) > 1:
+        abstand = (zeilen_r[-1].y1 - zeilen_r[0].y1) / (len(zeilen_r) - 1)
+    else:
+        abstand = fs * 1.25
+    abstand = max(abstand, fs * 1.05)
+    tw = pymupdf.TextWriter(page.rect, color=farbe or erkannt)
+    y = zeilen_r[0].y1 - fs * 0.22
+    zeilen = _umbrechen(neuer_text, font, fs, breite)
+    for i, z in enumerate(zeilen):
+        _zeile_schreiben(tw, links, y, z, font, fs, ausrichtung or "links", breite, letzte=i == len(zeilen) - 1)
+        y += abstand
+    tw.write_text(page)
+    if len(zeilen) > len(zeilen_r):
+        erg.warnungen.append(f"Absatz wird länger ({len(zeilen_r)} → {len(zeilen)} Zeilen) – Überlappung prüfen")
+    if y - abstand > page.rect.height - 20:
+        erg.warnungen.append("Text passt nicht: läuft über den unteren Seitenrand")
+    erg.warnungen.append("Scan: neuer Text ist echter Text in Ersatzschrift – Schriftbild bitte prüfen")
     return erg
 
 

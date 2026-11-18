@@ -35,6 +35,22 @@ class AppContext:
         return self._adressbuch
 
     @property
+    def archiv(self):
+        """Dokumentenarchiv (0.4.1) – gleiche SQLite-Datei wie Verlauf/Akten."""
+        if getattr(self, "_archiv", None) is None:
+            from core.archiv import Archiv
+            self._archiv = Archiv(self.journal.con)
+        return self._archiv
+
+    @property
+    def stammdaten(self):
+        """Mandanten und Versicherungen (0.4.1); Versicherer-E-Mails bleiben im Adressbuch."""
+        if getattr(self, "_stammdaten", None) is None:
+            from core.stammdaten import Stammdaten
+            self._stammdaten = Stammdaten(self.journal.con, self.adressbuch)
+        return self._stammdaten
+
+    @property
     def kanzlei(self) -> Kanzlei:
         return self.kanzlei_store.laden()          # her seferinde güncel hali
 

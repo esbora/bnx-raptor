@@ -1,14 +1,15 @@
 """„PDF bearbeiten“: Seiten, echter Textaustausch, OCR, Wortkorrektur im Scan, Schwärzen.
 
-Arbeitet immer auf einer Kopie im Speicher (core.pdf_sitzung). Das Original wird nie überschrieben;
-gespeichert wird über „Speichern unter…“ in eine neue Datei.
+Arbeitet auf einer Kopie im Speicher (core.pdf_sitzung). 0.4.1: „Speichern“ (Strg+S) schreibt sicher in
+dieselbe Datei (Temp-Datei → Prüfung → Ersetzen; extern geändert/gesperrt → nichts überschrieben),
+„Speichern unter…“ bleibt. „OK – Änderungen speichern“ speichert und kehrt zum Aufrufer zurück.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 import pymupdf
-from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QGuiApplication, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -108,103 +109,253 @@ class SeitenAnsicht(QWidget):
 
 
 # ---------------------------------------------------------------- Dialoge mit Vorschau
+class KlickBild(QLabel):
+    """Vorschaubild, das Klicks (Pixelposition im Bild) meldet."""
+    geklickt = Signal(QPoint)
+
+    def mousePressEvent(self, e):
+        self.geklickt.emit(e.position().toPoint())
+
+
 class _VorschauDialog(QDialog):
-    """Gemeinsame Basis: Formular links, Vorschau der geänderten Seite rechts, Warnungen unten."""
+    """Gemeinsame Basis: Formular links, Vorschau der geänderten Seite rechts (aktualisiert sich selbst)."""
+    BREITE = 620
 
     def __init__(self, parent, titel: str, sitzung: PdfSitzung, seite: int):
         super().__init__(parent)
         self.setWindowTitle(titel)
-        self.resize(1050, 720)
+        self.resize(1080, 740)
         self.sitzung, self.seite = sitzung, seite
         self.geprueft = False
+        self.markierung: pymupdf.Rect | None = None          # gewählter Absatz (Seitenkoordinaten)
         haupt = QHBoxLayout(self)
         links = QVBoxLayout()
+        self.kopf = QVBoxLayout()
+        links.addLayout(self.kopf)
         self.form = QFormLayout()
         links.addLayout(self.form)
         self.hinweis = QLabel()
         self.hinweis.setWordWrap(True)
         links.addWidget(self.hinweis)
         links.addStretch(1)
-        b_vor = QPushButton("&Vorschau aktualisieren")
-        b_vor.clicked.connect(self.vorschau)
-        links.addWidget(b_vor)
         bb = QDialogButtonBox()
-        self.ok = bb.addButton("Ü&bernehmen", QDialogButtonBox.AcceptRole)
+        self.ok = bb.addButton("OK", QDialogButtonBox.AcceptRole)
+        theme.rolle(self.ok, "primaer")
         bb.addButton("Abbrechen", QDialogButtonBox.RejectRole)
         bb.accepted.connect(self._annehmen)
         bb.rejected.connect(self.reject)
         links.addWidget(bb)
         haupt.addLayout(links, 2)
-        self.bild = QLabel("Vorschau …")
+        self.bild = KlickBild("Vorschau …")
         self.bild.setAlignment(Qt.AlignCenter)
+        self.bild.setCursor(Qt.PointingHandCursor)
         sc = QScrollArea()
         sc.setWidget(self.bild)
-        sc.setWidgetResizable(True)
+        sc.setWidgetResizable(False)            # Bild = feste Größe → Klickposition = Bildposition
+        sc.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
         haupt.addWidget(sc, 3)
         self.ergebnis = None
+        self._takt = QTimer(self)               # Live-Vorschau: kurz nach der letzten Eingabe
+        self._takt.setSingleShot(True)
+        self._takt.setInterval(350)
+        self._takt.timeout.connect(self.vorschau)
 
     def aenderung(self, doc):        # in Unterklassen
         raise NotImplementedError
 
+    def _seite_obj(self):
+        return self.sitzung.doc[self.seite]
+
     def vorschau(self) -> bool:
         try:
-            pix, erg = self.sitzung.vorschau(self.aenderung, self.seite, 620)
+            pix, erg = self.sitzung.vorschau(self.aenderung, self.seite, self.BREITE)
         except pe.PdfFehler as e:
-            self.hinweis.setText(f"<span style='color:#b91c1c'>{e}</span>")
+            self.hinweis.setText(f"<span style='color:{theme.F['fehler']}'>{e}</span>")
             self.geprueft = False
             return False
-        self.bild.setPixmap(qpixmap(pix))
+        bild = qpixmap(pix)
+        if self.markierung is not None:          # gewählten Absatz hervorheben
+            page = self._seite_obj()
+            f = pix.width / max(page.rect.width, 1)
+            r = pymupdf.Rect(self.markierung) * page.rotation_matrix * pymupdf.Matrix(f, f)
+            g = QPainter(bild)
+            g.setPen(QPen(QColor(theme.F["primaer"]), 2))
+            farbe = QColor(theme.F["primaer"])
+            farbe.setAlpha(28)
+            g.fillRect(QRect(int(r.x0) - 3, int(r.y0) - 3, int(r.width) + 6, int(r.height) + 6), farbe)
+            g.drawRect(QRect(int(r.x0) - 3, int(r.y0) - 3, int(r.width) + 6, int(r.height) + 6))
+            g.end()
+        self.bild.setPixmap(bild)
+        self.bild.adjustSize()
         w = getattr(erg, "warnungen", [])
         self.hinweis.setText(
-            "<b style='color:#b45309'>Bitte prüfen:</b><br>" + "<br>".join(f"⚠ {x}" for x in w) if w
-            else "<span style='color:#15803d'>✓ Keine Auffälligkeiten.</span>")
+            f"<b style='color:{theme.F['warn']}'>Bitte prüfen:</b><br>" + "<br>".join(f"⚠ {x}" for x in w) if w
+            else f"<span style='color:{theme.F['ok']}'>✓ Vorschau aktuell – keine Auffälligkeiten.</span>")
         if getattr(erg, "schrift", ""):
             self.hinweis.setText(self.hinweis.text() + f"<br>Schrift: {erg.schrift}")
         self.geprueft = True
         return True
 
     def _annehmen(self):
-        # Erst übernehmen, wenn die Vorschau mit den aktuellen Eingaben gezeigt wurde
-        if not self.geprueft:
-            if self.vorschau():
-                self.hinweis.setText(self.hinweis.text() + "<br><b>Vorschau aktualisiert – bitte erneut "
-                                     "„Übernehmen“ klicken.</b>")
+        # Vorschau ist live; falls die letzte Eingabe noch nicht gezeigt wurde, jetzt prüfen
+        if not self.geprueft and not self.vorschau():
             return
         self.accept()
 
     def _geaendert(self, *_):
         self.geprueft = False
+        self._takt.start()
 
 
 class TextDialog(_VorschauDialog):
-    def __init__(self, parent, sitzung, seite: int, block: dict | None, punkt=None):
+    """Absatz bearbeiten oder neuen Text einfügen.
+
+    Bearbeiten: Klick in die Vorschau wählt einen anderen Absatz (auch ganz unten); ◀/▶ gehen Absatz für
+    Absatz weiter, auch auf die Folgeseiten. Beim Wechsel wird die Änderung am bisherigen Absatz übernommen.
+    Digitaler Text nutzt die vorhandene Textebene, Scans die OCR-Blöcke (Bild + OCR-Text werden ersetzt).
+    """
+
+    def __init__(self, parent, sitzung, seite: int, block: dict | None, punkt=None, anwenden=None):
         super().__init__(parent, "Text bearbeiten" if block else "Text einfügen", sitzung, seite)
-        self.block, self.punkt = block, punkt
-        fmt = pe.block_format(block) if block else None
-        self.text = QPlainTextEdit(fmt.text if fmt else "")
+        self.punkt = punkt
+        self.anwenden = anwenden              # fn(beschreibung, aenderung, seite) -> bool
+        self.bearbeiten = block is not None
+        self.index, self.bbox, self.scan = -1, None, False
+        self.text = QPlainTextEdit()
         self.groesse = QDoubleSpinBox()
         self.groesse.setRange(5, 72)
-        self.groesse.setValue(fmt.groesse if fmt else 11)
-        self.farbe = fmt.farbe if fmt else (0, 0, 0)
+        self.farbe = (0, 0, 0)
         self.b_farbe = QPushButton("Farbe …")
         self.b_farbe.clicked.connect(self._farbe)
         self.ausr = QComboBox()
         for k, v in AUSRICHTUNG_DE.items():
             self.ausr.addItem(v, k)
-        self.ausr.setCurrentIndex(list(AUSRICHTUNG_DE).index(fmt.ausrichtung if fmt else "links"))
+        self.l_schrift = QLabel()
+        self.l_schrift.setWordWrap(True)
+        if self.bearbeiten:
+            nav = QHBoxLayout()
+            self.b_zurueck = QPushButton("◀ Vorheriger Absatz")
+            self.b_zurueck.clicked.connect(lambda: self._schritt(-1))
+            self.b_weiter = QPushButton("Nächster Absatz ▶")
+            self.b_weiter.clicked.connect(lambda: self._schritt(1))
+            nav.addWidget(self.b_zurueck)
+            nav.addWidget(self.b_weiter)
+            self.kopf.addLayout(nav)
+            self.l_pos = theme.rolle(QLabel(), "gedimmt")
+            self.l_pos.setWordWrap(True)
+            self.kopf.addWidget(self.l_pos)
+            self.bild.geklickt.connect(self._bild_klick)
+            self.bild.setToolTip("Absatz anklicken, um ihn zu bearbeiten")
         self.form.addRow("Text:", self.text)
         self.form.addRow("Schriftgröße (pt):", self.groesse)
         self.form.addRow("Schriftfarbe:", self.b_farbe)
         self.form.addRow("Ausrichtung:", self.ausr)
-        if fmt:
-            self.form.addRow("Schrift:", QLabel(fmt.schrift + ("  (gemischte Formatierung!)" if fmt.gemischt else "")))
-            if fmt.gemischt:
-                self.form.addRow(QLabel("<b style='color:#b45309'>⚠ Der Absatz enthält mehrere Formatierungen. "
-                                        "Nach dem Ändern wird er einheitlich gesetzt.</b>"))
+        self.form.addRow("Schrift:", self.l_schrift)
         for w in (self.text.textChanged, self.groesse.valueChanged, self.ausr.currentIndexChanged):
             w.connect(self._geaendert)
-        self.vorschau()
+        if self.bearbeiten:
+            page = self._seite_obj()
+            self._waehlen(self.seite, self._index_von(page, block))
+        else:
+            self.groesse.setValue(11)
+            self.ausr.setCurrentIndex(0)
+            self.vorschau()
+        self.text.setFocus()
 
+    # --- Absatzwahl -----------------------------------------------------------
+    @staticmethod
+    def _index_von(page, block: dict) -> int:
+        r = pymupdf.Rect(block["bbox"])
+        for i, b in enumerate(pe.textbloecke(page)):
+            if pymupdf.Rect(b["bbox"]) == r:
+                return i
+        return 0
+
+    def _block(self, doc=None):
+        page = (doc or self.sitzung.doc)[self.seite]
+        return pe.block_finden(page, self.index, self.bbox)
+
+    def _waehlen(self, seite: int, index: int):
+        self.seite = seite
+        page = self._seite_obj()
+        bloecke = pe.textbloecke(page)
+        if not bloecke:
+            return
+        self.index = max(0, min(index, len(bloecke) - 1))
+        b = bloecke[self.index]
+        self.bbox = tuple(b["bbox"])
+        self.markierung = pymupdf.Rect(b["bbox"])
+        self.scan = pe.block_ist_ocr(page, b)
+        fmt = pe.block_format(b)
+        for w in (self.text, self.groesse, self.ausr):
+            w.blockSignals(True)
+        self.text.setPlainText(fmt.text)
+        self.groesse.setValue(fmt.groesse)
+        self.farbe = fmt.farbe
+        self.ausr.setCurrentIndex(list(AUSRICHTUNG_DE).index(fmt.ausrichtung))
+        for w in (self.text, self.groesse, self.ausr):
+            w.blockSignals(False)
+        self._original = (fmt.text, fmt.groesse, fmt.ausrichtung)
+        self.l_schrift.setText(("Scan (OCR-Text) – wird als echter Text neu gesetzt" if self.scan else fmt.schrift)
+                               + ("  ⚠ gemischte Formatierung – wird einheitlich gesetzt" if fmt.gemischt else ""))
+        self.l_pos.setText(f"Seite {seite + 1} · Absatz {self.index + 1} von {len(bloecke)}"
+                           + (" · Scan" if self.scan else ""))
+        self.b_zurueck.setEnabled(seite > 0 or self.index > 0)
+        self.b_weiter.setEnabled(seite < self.sitzung.doc.page_count - 1 or self.index < len(bloecke) - 1)
+        self.geprueft = False
+        self.vorschau()
+        self.text.setFocus()
+
+    def _veraendert(self) -> bool:
+        return self.bearbeiten and (self.text.toPlainText(), self.groesse.value(),
+                                    self.ausr.currentData()) != self._original
+
+    def _uebernehmen_falls_geaendert(self) -> bool:
+        """Änderung am aktuellen Absatz in das Dokument übernehmen (bei Absatzwechsel und OK)."""
+        if not self._veraendert():
+            return True
+        if self.anwenden is None:
+            return True
+        return bool(self.anwenden("Text geändert", self.aenderung, self.seite))
+
+    def _schritt(self, richtung: int):
+        if not self._uebernehmen_falls_geaendert():
+            return
+        bloecke = pe.textbloecke(self._seite_obj())
+        i = self._index_neu() + richtung
+        seite = self.seite
+        while not 0 <= i < len(bloecke):
+            seite += richtung
+            if not 0 <= seite < self.sitzung.doc.page_count:
+                return
+            bloecke = pe.textbloecke(self.sitzung.doc[seite])
+            i = 0 if richtung > 0 else len(bloecke) - 1
+        self._waehlen(seite, i)
+
+    def _index_neu(self) -> int:
+        """Index des (evtl. gerade geänderten) Absatzes in der aktuellen Seite."""
+        page = self._seite_obj()
+        b = pe.block_finden(page, self.index, self.bbox)
+        return self._index_von(page, b) if b else self.index
+
+    def _bild_klick(self, pos: QPoint):
+        page = self._seite_obj()
+        pm = self.bild.pixmap()
+        if pm is None or pm.isNull():
+            return
+        f = pm.width() / max(page.rect.width, 1)
+        punkt = pymupdf.Point(pos.x() / f, pos.y() / f) * page.derotation_matrix
+        b = pe.block_an(page, punkt)
+        if not b:
+            return
+        if not self._uebernehmen_falls_geaendert():
+            return
+        page = self._seite_obj()                      # nach dem Übernehmen neu (Inhalt hat sich geändert)
+        b = pe.block_an(page, punkt)
+        if b:
+            self._waehlen(self.seite, self._index_von(page, b))
+
+    # --- Formular -------------------------------------------------------------
     def _farbe(self):
         c = QColorDialog.getColor(QColor.fromRgbF(*self.farbe), self, "Schriftfarbe")
         if c.isValid():
@@ -214,24 +365,39 @@ class TextDialog(_VorschauDialog):
     def aenderung(self, doc):
         page = doc[self.seite]
         text = self.text.toPlainText()
-        if self.block:
-            b = pe.block_an(page, (self.block["bbox"][0] + 1, (self.block["bbox"][1] + self.block["bbox"][3]) / 2))
+        if self.bearbeiten:
+            b = pe.block_finden(page, self.index, self.bbox)
+            if b is None:
+                raise pe.PdfFehler("Absatz nicht mehr gefunden – bitte erneut anklicken.")
+            if self.scan:
+                return pe.scan_block_ersetzen(page, b, text, self.groesse.value(), self.farbe,
+                                              self.ausr.currentData())
             return pe.block_ersetzen(page, b, text, self.groesse.value(), self.farbe, self.ausr.currentData())
         return pe.text_einfuegen(page, self.punkt, text, self.groesse.value(), self.farbe,
                                  ausrichtung=self.ausr.currentData())
+
+    def _annehmen(self):
+        if self.bearbeiten:                     # Änderung direkt übernehmen und schließen
+            if not self.geprueft and not self.vorschau():
+                return
+            if self._uebernehmen_falls_geaendert():
+                self.accept()
+            return
+        super()._annehmen()
 
 
 class WortDialog(_VorschauDialog):
     def __init__(self, parent, sitzung, seite: int, wort: str, rect, ocr_info=None):
         super().__init__(parent, "Wort im Scan korrigieren", sitzung, seite)
         self.alt, self.rect = wort, rect
+        self.markierung = pymupdf.Rect(rect)
         self.neu = QLineEdit(wort)
         self.form.addRow("Erkannt:", QLabel(f"<b>{wort}</b>" + (f"  (Sicherheit {ocr_info.conf:.0f} %)"
                                                                  if ocr_info else "")))
         self.form.addRow("Korrigiert:", self.neu)
         if ocr_info and ocr_info.geschuetzt or any(m.search(wort) for m in pe.SCHUTZ_MUSTER[1:]):
-            self.form.addRow(QLabel("<b style='color:#b91c1c'>Geschütztes Feld (Aktenzeichen/E-Mail/IBAN/Nr.): "
-                                    "wird nie automatisch geändert – bitte Zeichen für Zeichen prüfen.</b>"))
+            self.form.addRow(QLabel(f"<b style='color:{theme.F['fehler']}'>Geschütztes Feld (Aktenzeichen/E-Mail/"
+                                    "IBAN/Nr.): wird nie automatisch geändert – bitte Zeichen für Zeichen prüfen.</b>"))
         self.neu.textChanged.connect(self._geaendert)
         self.vorschau()
 
@@ -243,13 +409,18 @@ class WortDialog(_VorschauDialog):
 class PdfEditor(QDialog):
     """Eigenständig („PDF bearbeiten…“) oder aus Word→PDF / Anlagen-Assistent geöffnet.
 
-    uebernehmen_text: wenn gesetzt, gibt es zusätzlich einen Knopf, der das Ergebnis an den Aufrufer
-    zurückgibt (self.ergebnis_bytes), z. B. „In Anlage übernehmen“.
+    Datei geöffnet → „Speichern“ schreibt in dieselbe Datei.
+    Nur Bytes (z. B. Anlage im Anlagen-Assistenten) → „Speichern“ ruft bei_speichern(bytes) auf, das Ergebnis
+    steht zusätzlich in self.ergebnis_bytes. start_seite/text_modus: direkt auf einer Seite im Werkzeug
+    „Text bearbeiten“ öffnen (Scan ohne Text → Texterkennung dieser Seite läuft automatisch).
     """
 
     def __init__(self, parent=None, pfad: Path | None = None, daten: bytes | None = None, name: str = "",
-                 uebernehmen_text: str = "", sprachen: tuple[str, ...] = pe.SPRACHEN):
+                 uebernehmen_text: str = "", sprachen: tuple[str, ...] = pe.SPRACHEN, start_seite: int = 0,
+                 text_modus: bool = False, bei_speichern=None):
         super().__init__(parent)
+        self.bei_speichern = bei_speichern
+        self.ziel_text = uebernehmen_text
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.resize(1250, 860)
         self.sprachen = tuple(sprachen)
@@ -265,6 +436,13 @@ class PdfEditor(QDialog):
         self._aufbau(uebernehmen_text)
         if pfad or daten is not None:
             self.laden(pfad, daten, name)
+            if self.sitzung and start_seite:
+                self.aktualisieren(start_seite)
+            if self.sitzung and text_modus:
+                self._modus_aktion["text"].setChecked(True)
+                self._modus_setzen("text")
+                if pe.ist_gescannt(self.sitzung.doc[self.seite]) and pe.tesseract_ordner():
+                    QTimer.singleShot(200, lambda: self._ocr_seiten_ausfuehren([self.seite]))
         else:
             self._titel()
 
@@ -288,12 +466,8 @@ class PdfEditor(QDialog):
                 leiste.addAction(a)
             return a
         act("Öffnen…", self.oeffnen_dialog, "Ctrl+O", symbol="oeffnen")
-        self.a_speichern = act("Speichern unter…", self.speichern_unter, "Ctrl+Shift+S", symbol="speichern")
-        if uebernehmen_text:
-            self.a_uebernehmen = act(uebernehmen_text, self.uebernehmen, "Ctrl+Return", symbol="uebernehmen")
-            knopf = tb.widgetForAction(self.a_uebernehmen)
-            if knopf:
-                theme.rolle(knopf, "haupt", "gruppe")
+        self.a_speichern = act("Speichern", self.speichern, "Ctrl+S", symbol="speichern")
+        self.a_speichern_unter = act("Speichern unter…", self.speichern_unter, "Ctrl+Shift+S")
         tb.addSeparator()
         self.a_undo = act("Rückgängig", self.rueckgaengig, "Ctrl+Z", symbol="rueckgaengig")
         self.a_redo = act("Wiederholen", self.wiederholen, "Ctrl+Y", symbol="wiederholen")
@@ -329,6 +503,7 @@ class PdfEditor(QDialog):
             a.triggered.connect(lambda _=False, k=key: self._modus_setzen(k))
             self.modus_gruppe.addAction(a)
             modus_aktion[key] = a
+        self._modus_aktion = modus_aktion
 
         def gruppe(a):
             wz.addAction(a)
@@ -438,10 +613,25 @@ class PdfEditor(QDialog):
         split.addWidget(rechts)
         split.setStretchFactor(1, 1)
         lay.addWidget(split, 1)
+        unten = QHBoxLayout()
+        unten.setContentsMargins(12, 6, 12, 10)
         self.status = QLabel()
         self.status.setWordWrap(True)
-        self.status.setContentsMargins(12, 4, 12, 6)
-        lay.addWidget(self.status)
+        unten.addWidget(self.status, 1)
+        b_abbr = QPushButton("Abbrechen")
+        b_abbr.clicked.connect(self.reject)
+        self.b_ok = QPushButton(theme.icon("uebernehmen", "primaer_text", 18), "  OK – Änderungen speichern")
+        self.b_ok.setToolTip("Speichern und zurück" + (f" ({uebernehmen_text})" if uebernehmen_text else "")
+                             + " – Strg+Eingabe")
+        theme.rolle(self.b_ok, "primaer")
+        self.b_ok.clicked.connect(self.ok_speichern)
+        unten.addWidget(b_abbr)
+        unten.addWidget(self.b_ok)
+        lay.addLayout(unten)
+        a_ok = QAction(self)
+        a_ok.setShortcuts([QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")])
+        a_ok.triggered.connect(self.ok_speichern)
+        self.addAction(a_ok)
         self._schwaerz_anzeige()
         # Kein "Standardknopf": Enter im Suchfeld darf nicht versehentlich „Schwärzungen anwenden“ auslösen
         for b in self.findChildren(QPushButton):
@@ -471,6 +661,8 @@ class PdfEditor(QDialog):
         s = self.sitzung
         name = s.name if s else "kein Dokument"
         self.setWindowTitle(f"PDF bearbeiten – {name}{' *' if s and s.geaendert else ''}")
+        if hasattr(self, "a_speichern"):
+            self.a_speichern.setEnabled(bool(s))
 
     def aktualisieren(self, seite: int | None = None):
         s = self.sitzung
@@ -568,17 +760,15 @@ class PdfEditor(QDialog):
             return
         if self.modus == "text":
             b = pe.block_an(page, punkt)
+            if not b and pe.ist_gescannt(page) and pe.tesseract_ordner():
+                self.status.setText("Scan ohne Text – Texterkennung dieser Seite läuft …")
+                self._ocr_seiten_ausfuehren([self.seite])
+                page = self.sitzung.doc[self.seite]
+                b = pe.block_an(page, punkt)
             if not b:
-                gescannt = bool(page.get_images()) and not any(pe.textbloecke(page))
-                self.status.setText("Kein digitaler Text an dieser Stelle."
-                                    + (" Für Scans: „Wort korrigieren (Scan)“ nach OCR." if gescannt else ""))
+                self.status.setText("Kein Text an dieser Stelle – bitte direkt auf einen Absatz klicken.")
                 return
-            if self._unsichtbar(b):
-                self.status.setText("Das ist OCR-Text eines Scans – bitte „Wort korrigieren (Scan)“ verwenden.")
-                return
-            d = TextDialog(self, self.sitzung, self.seite, b)
-            if d.exec() == QDialog.Accepted:
-                self._ausfuehren("Text geändert", d.aenderung)
+            TextDialog(self, self.sitzung, self.seite, b, anwenden=self._anwenden).exec()
         elif self.modus == "einfuegen":
             d = TextDialog(self, self.sitzung, self.seite, None, (punkt.x, punkt.y))
             if d.exec() == QDialog.Accepted:
@@ -600,6 +790,15 @@ class PdfEditor(QDialog):
                     self.ocr_worte[self.seite] = [o for o in self.ocr_worte.get(self.seite, [])
                                                   if not o.rect.intersects(w[1])]
                     self._anzeigen()
+
+    def _anwenden(self, beschreibung: str, fn, seite: int) -> bool:
+        """Für den Textdialog: Änderung als eigenen Schritt (rückgängig machbar) übernehmen."""
+        alt = self.seite
+        self.seite = seite
+        ok = self._ausfuehren(beschreibung, fn, seite) is not None
+        if not ok:
+            self.seite = alt
+        return ok
 
     def _unsichtbar(self, b: dict) -> bool:
         """Block besteht nur aus unsichtbarem OCR-Text (render mode 3)?"""
@@ -753,7 +952,10 @@ class PdfEditor(QDialog):
         if not pe.tesseract_ordner():
             QMessageBox.critical(self, "Texterkennung", "OCR-Komponente fehlt (Ordner „ocr“ neben BnX-Raptor.exe).")
             return
-        seiten, fehler, ergebnisse = self._ocr_seiten(), [], {}
+        self._ocr_seiten_ausfuehren(self._ocr_seiten())
+
+    def _ocr_seiten_ausfuehren(self, seiten: list[int]):
+        fehler, ergebnisse = [], {}
         for i, n in enumerate(seiten, 1):
             page = self.sitzung.doc[n]
             if page.get_text().strip():
@@ -821,26 +1023,66 @@ class PdfEditor(QDialog):
         if self.sitzung and self.sitzung.wiederholen():
             self.aktualisieren()
 
-    def speichern_unter(self) -> bool:
+    def _offene_schwaerzungen_ok(self) -> bool:
+        return not self.offen or QMessageBox.question(
+            self, "Speichern", f"{len(self.offen)} vorgemerkte Schwärzung(en) sind noch nicht angewendet und würden "
+            "NICHT gespeichert. Trotzdem speichern?") == QMessageBox.Yes
+
+    def _gespeichert_melden(self, erg, wohin: str):
+        text = f"✓ Gespeichert: {wohin}"
+        if erg is not None and getattr(erg, "pruefung", None):
+            text += " · Schwärzung geprüft (Text, OCR-Ebene, Bilder, eingebettete Dateien, Rohdaten ✓)"
+        theme.status_setzen(self.status, "ok", text)
+        self._titel()
+
+    def speichern(self) -> bool:
+        """Strg+S: in dieselbe Datei (bzw. an den Aufrufer zurück). Bei Fehler bleibt alles offen."""
         s = self.sitzung
         if not s:
             return False
-        if self.offen and QMessageBox.question(
-                self, "Speichern", f"{len(self.offen)} vorgemerkte Schwärzung(en) sind noch nicht angewendet "
-                "und würden NICHT gespeichert. Trotzdem speichern?") != QMessageBox.Yes:
+        if not self._offene_schwaerzungen_ok():
             return False
-        zusammenfassung = "\n".join(f"• {p}" for p in s.protokoll) or "• keine Änderungen"
-        warn = "\n".join(f"⚠ {w}" for w in s.warnungen)
-        text = f"Änderungen:\n{zusammenfassung}"
-        if warn:
-            text += f"\n\nBitte prüfen:\n{warn}"
-        if s.schwaerzungen:
-            text += ("\n\nSchwärzung: eingebettete Dateien, Metadaten und Vorschaubilder werden entfernt; "
-                     "die gespeicherte Datei wird danach automatisch geprüft.")
-        if s.signaturen:
-            text += "\n\n⚠ Die digitale Signatur des Originals gilt für die Kopie nicht mehr."
-        if QMessageBox.question(self, "Vor dem Speichern", text + "\n\nWeiter zu „Speichern unter…“?") \
-                != QMessageBox.Yes:
+        if not s.kann_speichern and self.bei_speichern is None:
+            return self.speichern_unter()
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            if s.kann_speichern:
+                erg = s.speichern()
+                self.gespeichert = erg.pfad
+                wohin = str(erg.pfad)
+            else:                                           # Anlage im Speicher → an den Aufrufer
+                erg = None
+                if s.schwaerzungen:                         # gleiche Sicherheit wie beim Speichern in eine Datei
+                    import tempfile
+                    with tempfile.TemporaryDirectory(prefix="bnx-uebernahme-") as td:
+                        erg = s.speichern_unter(Path(td) / "geprueft.pdf")
+                        daten = erg.pfad.read_bytes()
+                    s.original, s._basis = None, ""         # bleibt eine Arbeitskopie im Speicher
+                else:
+                    daten = s.als_bytes()
+                self.ergebnis_bytes = daten
+                self.bei_speichern(daten)
+                s.geaendert = False
+                wohin = self.ziel_text or "übernommen"
+        except Exception as e:  # noqa: BLE001 – Datei gesperrt, extern geändert, Prüfung fehlgeschlagen …
+            QGuiApplication.restoreOverrideCursor()
+            from core.pdf_sitzung import ExternGeaendert
+            box = QMessageBox(QMessageBox.Warning, "Nicht gespeichert", f"{e}\n\nIhre Änderungen sind noch offen.",
+                              parent=self)
+            b_unter = box.addButton("Speichern unter…", QMessageBox.AcceptRole) if isinstance(e, (ExternGeaendert,
+                                                                                                 pe.PdfFehler)) else None
+            box.addButton("OK", QMessageBox.RejectRole)
+            box.exec()
+            if b_unter is not None and box.clickedButton() is b_unter:
+                return self.speichern_unter()
+            return False
+        QGuiApplication.restoreOverrideCursor()
+        self._gespeichert_melden(erg, wohin)
+        return True
+
+    def speichern_unter(self) -> bool:
+        s = self.sitzung
+        if not s or not self._offene_schwaerzungen_ok():
             return False
         name, _ = QFileDialog.getSaveFileName(self, "Speichern unter", str(s.vorschlag()), "PDF (*.pdf)")
         if not name:
@@ -852,42 +1094,20 @@ class PdfEditor(QDialog):
             finally:
                 QGuiApplication.restoreOverrideCursor()
         except pe.PdfFehler as e:
-            QMessageBox.critical(self, "Speichern", str(e))
+            QMessageBox.critical(self, "Nicht gespeichert", f"{e}\n\nIhre Änderungen sind noch offen.")
             return False
         self.gespeichert = erg.pfad
-        meldung = f"Gespeichert: {erg.pfad}"
-        if erg.pruefung:
-            meldung += ("\n\nSchwärzung geprüft (Datei neu geöffnet): Text ✓, OCR-Ebene ✓, Bilder ✓, "
-                        "eingebettete Dateien ✓, Rohdaten ✓")
-            if erg.entfernt:
-                meldung += "\nEntfernt: " + ", ".join(erg.entfernt)
-        QMessageBox.information(self, "Gespeichert", meldung)
-        self._titel()
+        self._gespeichert_melden(erg, str(erg.pfad))
         return True
 
-    def uebernehmen(self):
-        if self.offen and QMessageBox.question(
-                self, "Übernehmen", "Vorgemerkte Schwärzungen sind noch nicht angewendet. Trotzdem übernehmen?") \
-                != QMessageBox.Yes:
+    def ok_speichern(self):
+        """„OK – Änderungen speichern“: speichern und zurück. Scheitert das Speichern, bleibt der Editor offen."""
+        if self.sitzung and self.sitzung.geaendert and not self.speichern():
             return
-        if self.sitzung.schwaerzungen:
-            # gleiche Sicherheit wie beim Speichern: bereinigen, speichern, neu öffnen und prüfen
-            import tempfile
-            with tempfile.TemporaryDirectory(prefix="bnx-uebernahme-") as td:
-                try:
-                    erg = self.sitzung.speichern_unter(Path(td) / "geprueft.pdf")
-                except pe.PdfFehler as e:
-                    QMessageBox.critical(self, "Übernehmen", str(e))
-                    return
-                self.ergebnis_bytes = erg.pfad.read_bytes()
-            QMessageBox.information(self, "Schwärzung geprüft",
-                                    "Schwärzung geprüft (neu geöffnet): Text ✓, OCR-Ebene ✓, Bilder ✓, "
-                                    "eingebettete Dateien ✓, Rohdaten ✓"
-                                    + (f"\nEntfernt: {', '.join(erg.entfernt)}" if erg.entfernt else ""))
-        else:
-            self.ergebnis_bytes = self.sitzung.als_bytes()
-        self.sitzung.geaendert = False
         self.accept()
+
+    def uebernehmen(self):          # frühere Schnittstelle (Anlagen-Assistent)
+        self.ok_speichern()
 
     def oeffnen_dialog(self):
         if not self._verwerfen_ok():
@@ -901,11 +1121,15 @@ class PdfEditor(QDialog):
             return True
         box = QMessageBox(QMessageBox.Warning, "Ungespeicherte Änderungen",
                           "Das Dokument wurde geändert und noch nicht gespeichert.", parent=self)
-        b_sp = box.addButton("Speichern unter…", QMessageBox.AcceptRole)
+        b_sp = box.addButton("Speichern", QMessageBox.AcceptRole)
+        b_unter = box.addButton("Speichern unter…", QMessageBox.ActionRole)
         b_weg = box.addButton("Verwerfen", QMessageBox.DestructiveRole)
         box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(b_sp)
         box.exec()
         if box.clickedButton() is b_sp:
+            return self.speichern()
+        if box.clickedButton() is b_unter:
             return self.speichern_unter()
         return box.clickedButton() is b_weg
 

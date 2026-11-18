@@ -43,7 +43,7 @@ def test_satz_ersetzen_entfernt_alten_text(tmp_path):
     assert ALT not in text and not d[0].search_for(ALT)
     assert NEU in text and d[0].search_for(NEU)
     assert "Sehr geehrte Damen und Herren" in text
-    assert not (tmp_path / "neu.bnx-tmp.pdf").exists()
+    assert not list(tmp_path.glob("*.bnx-tmp*"))
 
 
 def test_block_ausrichtung_groesse_und_ueberlauf():
@@ -92,7 +92,7 @@ def test_seitenoperationen(tmp_path):
     assert doc[1].cropbox.width == 350
 
 
-def test_sitzung_rueckgaengig_vorschau_und_original_bleibt(tmp_path):
+def test_sitzung_rueckgaengig_vorschau_und_speichern_unter(tmp_path):
     quelle = _brief(tmp_path)
     vorher = quelle.read_bytes()
     s = PdfSitzung(quelle)
@@ -105,11 +105,86 @@ def test_sitzung_rueckgaengig_vorschau_und_original_bleibt(tmp_path):
     assert ALT in s.doc[0].get_text()
     s.wiederholen()
     assert NEU in s.doc[0].get_text()
-    with pytest.raises(pe.PdfFehler, match="Original"):
-        s.speichern_unter(quelle)
     erg = s.speichern_unter(s.vorschlag())
     assert erg.pfad.name == "brief_bearbeitet.pdf" and not s.geaendert
-    assert quelle.read_bytes() == vorher
+    assert quelle.read_bytes() == vorher                          # „Speichern unter“ lässt die Quelle unverändert
+    assert s.original == erg.pfad                                 # weiteres Strg+S geht in die neue Datei
+
+
+def test_speichern_gleiche_datei_extern_geaendert_und_gesperrt(tmp_path, monkeypatch):
+    from core.pdf_sitzung import ExternGeaendert
+    quelle = _brief(tmp_path, "akte.pdf")
+    s = PdfSitzung(quelle)
+    s.aendern("Text", lambda d: pe.text_ersetzen(d[0], ALT, NEU))
+    erg = s.speichern()                                            # Strg+S: gleiche Datei, gleicher Name
+    assert erg.pfad == quelle and not s.geaendert
+    d = pymupdf.open(quelle)
+    assert NEU in d[0].get_text() and ALT not in d[0].get_text()
+    d.close()
+    assert not list(tmp_path.glob(".~*"))                          # keine Temp-Reste
+    # extern geändert → nicht überschreiben
+    s.aendern("Drehen", lambda d: pe.seiten_drehen(d, [0], 90))
+    fremd = quelle.read_bytes() + b"\n% fremd"
+    quelle.write_bytes(fremd)
+    with pytest.raises(ExternGeaendert):
+        s.speichern()
+    assert quelle.read_bytes() == fremd and s.geaendert
+    # gesperrt → klare Meldung, Datei unverändert, Änderungen bleiben in der Sitzung
+    s2 = PdfSitzung(quelle)
+    s2.aendern("Drehen", lambda d: pe.seiten_drehen(d, [0], 90))
+
+    def gesperrt(a, b):
+        raise PermissionError(5, "Zugriff verweigert")
+    monkeypatch.setattr(pe.os, "replace", gesperrt)
+    monkeypatch.setattr("time.sleep", lambda s_: None)
+    with pytest.raises(pe.PdfFehler, match="gesperrt"):
+        s2.speichern()
+    assert quelle.read_bytes() == fremd and s2.geaendert and not list(tmp_path.glob(".~*"))
+
+
+def test_zweiter_und_letzter_absatz_einzeln_auch_bei_gleichem_text():
+    doc = pymupdf.open()
+    p = doc.new_page()
+    gleich = "Die Parteien schlossen einen Mietvertrag."
+    for y in (100, 160, 220, 700):
+        p.insert_text((72, y), gleich if y in (160, 220) else f"Absatz bei {y}", fontname="helv", fontsize=11)
+    bloecke = pe.textbloecke(p)
+    assert len(bloecke) == 4
+    zweiter = pe.block_finden(p, 1, bloecke[1]["bbox"])
+    pe.block_ersetzen(p, zweiter, "Zweiter Absatz neu.")
+    texte = [pe._blocktext(b) for b in pe.textbloecke(p)]
+    assert texte.count(gleich) == 1 and "Zweiter Absatz neu." in texte    # nur der gewählte Absatz geändert
+    assert pe._blocktext(pe.textbloecke(p)[2]) == gleich
+    letzter = pe.textbloecke(p)[-1]
+    pe.block_ersetzen(p, pe.block_finden(p, 3, letzter["bbox"]), "Letzter Absatz neu.")
+    texte = [pe._blocktext(b) for b in pe.textbloecke(p)]
+    assert texte[-1] == "Letzter Absatz neu." and texte[0] == "Absatz bei 100" and gleich in texte
+
+
+def test_scan_absatz_ersetzen_bild_und_ocr_text():
+    """Scan mit OCR-Ebene: Absatz ersetzen → alte Pixel weg, neuer Text sichtbar + durchsuchbar,
+    der andere Absatz bleibt unverändert."""
+    q = pymupdf.open()
+    qp = q.new_page()
+    qp.insert_text((72, 120), "Kontostand alt 100 Euro", fontsize=14)
+    qp.insert_text((72, 300), "Anderer Absatz bleibt", fontsize=14)
+    scan = pymupdf.open()
+    sp = scan.new_page()
+    sp.insert_image(sp.rect, pixmap=qp.get_pixmap(dpi=150, colorspace=pymupdf.csGRAY))
+    # OCR-Ebene wie nach der Texterkennung (Wörter an den echten Positionen)
+    worte = []
+    for w in qp.get_text("words"):
+        worte.append(pe.OcrWort(w[4], 95, pymupdf.Rect(w[:4]), (w[5], 0, w[6])))
+    pe.textebene_einfuegen(sp, worte)
+    bloecke = pe.textbloecke(sp)
+    b = next(x for x in bloecke if "Kontostand" in pe._blocktext(x))
+    assert pe.block_ist_ocr(sp, b)
+    vorher_anderer = sp.get_pixmap(clip=pymupdf.Rect(60, 280, 400, 310)).samples
+    erg = pe.scan_block_ersetzen(sp, b, "Kontostand neu 250 Euro")
+    assert sp.search_for("Kontostand neu 250 Euro") and not sp.search_for("alt 100")
+    assert sp.search_for("Anderer Absatz bleibt")
+    assert sp.get_pixmap(clip=pymupdf.Rect(60, 280, 400, 310)).samples == vorher_anderer
+    assert erg.rect.y0 < 125
 
 
 def test_schwaerzung_mit_bild_und_eingebetteter_datei(tmp_path):

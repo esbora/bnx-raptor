@@ -1,8 +1,10 @@
 """Anlagen-Assistent: Schriftsatz + Anlagen → einzelne PDFs + Anlagenverzeichnis.docx.
 
 Arayüzden bağımsız mantık (testlerde doğrudan kullanılır). Orijinal dosyalar yalnızca okunur;
-her ekin bellekte bir PDF çalışma kopyası vardır. Paket önce gizli bir geçici klasöre yazılır,
-her dosya yeniden açılıp kontrol edilir, ancak hepsi başarılıysa hedef adlara taşınır.
+her ekin bellekte bir PDF çalışma kopyası vardır. Paket önce YEREL geçici klasörde (%TEMP%) oluşturulur,
+her dosya yeniden açılıp kontrol edilir, sonra hedefe kopyalanıp hemen adlandırılır (OneDrive/virüs
+tarayıcısı kısa süre kilitlerse tekrar denenir). 0.4.1: Hauptdokument isteğe bağlı; açılamayan veya
+dönüştürülemeyen ekler orijinal adı/uzantısı/içeriğiyle pakete alınır, kullanıcı seçmedikçe hiçbir ek çıkarılmaz.
 """
 from __future__ import annotations
 
@@ -255,35 +257,43 @@ def dateiname(bezeichnung: str) -> str:
 
 @dataclass
 class Hinweis:
-    stufe: str                 # "fehler" (blockiert) | "warnung"
-    art: str                   # fehler | identisch | aehnlich | ausrichtung | ocr | leer
+    stufe: str                 # "fehler" | "warnung" | "info" – seit 0.4.1 blockiert nichts mehr das Paket
+    art: str                   # original | fehlt | identisch | aehnlich | ausrichtung | ocr | leer
     text: str
     ids: list[int] = field(default_factory=list)
 
 
+ORIGINAL_TEXT = "Original übernommen – Vorschau nicht verfügbar"
+
+
+def lesbar(e: Eintrag) -> bool:
+    """Quelldatei konnte gelesen werden (Prüfsumme vorhanden) – dann kann sie als Original ins Paket."""
+    return bool(e.sha256)
+
+
 def pruefen(schriftsatz: Eintrag | None, anlagen: list[Eintrag]) -> list[Hinweis]:
+    """Nur Hinweise – das Paket wird trotzdem erstellt. Nichts wird automatisch entfernt."""
     h: list[Hinweis] = []
-    if schriftsatz is None:
-        h.append(Hinweis("fehler", "leer", "Kein Schriftsatz ausgewählt."))
     alle = ([schriftsatz] if schriftsatz else []) + anlagen
     for e in alle:
-        if e.fehler:
-            h.append(Hinweis("fehler", "fehler", f"{e.quelle.name}: {e.fehler}", [e.id]))
+        if e.fehler and lesbar(e):
+            h.append(Hinweis("warnung", "original", f"{e.quelle.name}: {ORIGINAL_TEXT} ({e.fehler})", [e.id]))
+        elif e.fehler:
+            h.append(Hinweis("fehler", "fehlt", f"{e.quelle.name}: wird NICHT kopiert – {e.fehler}", [e.id]))
     for e in anlagen:
         if not e.titel.strip():
-            h.append(Hinweis("fehler", "leer", f"{e.quelle.name}: Bezeichnung fehlt.", [e.id]))
-    if not anlagen:
-        h.append(Hinweis("warnung", "leer", "Keine Anlagen in der Liste."))
+            h.append(Hinweis("warnung", "leer", f"{e.quelle.name}: Bezeichnung fehlt – Dateiname wird verwendet.",
+                             [e.id]))
+    if not anlagen and not schriftsatz:
+        h.append(Hinweis("warnung", "leer", "Keine Dateien in der Liste."))
     for a, b in itertools.combinations(alle, 2):
         if a.sha256 and a.sha256 == b.sha256:
-            h.append(Hinweis("warnung", "identisch",
-                             f"Identische Dateien (Byte für Byte gleich): {a.quelle.name} und {b.quelle.name}",
+            h.append(Hinweis("info", "identisch",
+                             f"Hinweis: identische Dateien (Byte für Byte gleich): {a.quelle.name} und {b.quelle.name}",
                              [a.id, b.id]))
         elif aehnlich(a, b):
-            h.append(Hinweis("warnung", "aehnlich",
-                             f"Ähnlicher Inhalt, andere Datei (z. B. PDF und Scan) – bitte prüfen, ob doppelt: "
-                             f"{a.quelle.name} und {b.quelle.name}",
-                             [a.id, b.id]))
+            h.append(Hinweis("info", "aehnlich",
+                             f"Hinweis: ähnlicher Inhalt: {a.quelle.name} und {b.quelle.name}", [a.id, b.id]))
     for e in alle:
         for s, g in sorted(e.drehvorschlag.items()):
             text = "steht vermutlich auf dem Kopf" if g == 180 else f"ist vermutlich um {g}° gedreht"
@@ -294,13 +304,14 @@ def pruefen(schriftsatz: Eintrag | None, anlagen: list[Eintrag]) -> list[Hinweis
 
 
 def blockiert(hinweise: list[Hinweis]) -> bool:
-    return any(x.stufe == "fehler" for x in hinweise)
+    """Seit 0.4.1 blockiert kein Hinweis das Paket (Dateien werden notfalls als Original übernommen)."""
+    return False
 
 
 # ---------------------------------------------------------------- Paket erstellen
 @dataclass
 class Paketdatei:
-    rolle: str                 # schriftsatz | anlage | verzeichnis | gesamt
+    rolle: str                 # schriftsatz | anlage | original | fehlt | verzeichnis | gesamt
     bezeichnung: str
     titel: str
     pfad: Path
@@ -312,9 +323,10 @@ class Paketdatei:
 class Paket:
     ordner: Path
     dateien: list[Paketdatei]
+    hinweise: list[str] = field(default_factory=list)      # z. B. nicht kopiert / nicht im Gesamt-PDF
 
     def fuer_versand(self, verzeichnis: bool = False, gesamt: bool = False) -> list[Paketdatei]:
-        return [d for d in self.dateien if d.rolle in ("schriftsatz", "anlage")
+        return [d for d in self.dateien if d.rolle in ("schriftsatz", "anlage", "original")
                 or (verzeichnis and d.rolle == "verzeichnis") or (gesamt and d.rolle == "gesamt")]
 
 
@@ -324,9 +336,38 @@ class Namenskonflikt(Exception):
         self.vorhanden, self.vorschlag = vorhanden, vorschlag
 
 
-def geplante_namen(schriftsatz_name: str, bez: list[str], gesamt: bool) -> list[str]:
-    namen = [schriftsatz_name] + [dateiname(b) for b in bez] + [VERZEICHNIS]
-    return namen + ([GESAMT] if gesamt else [])
+class AblageFehler(pe.PdfFehler):
+    """Eine Paketdatei konnte nicht im Zielordner abgelegt werden (Datei wird genannt)."""
+
+    def __init__(self, datei: Path, grund: str):
+        super().__init__(f"{Path(datei).name}: {grund}")
+        self.datei, self.grund = Path(datei), grund
+
+
+ABLAGE_VERSUCHE = 8              # vorübergehende Sperren (OneDrive, Virenscanner, Vorschau) abwarten
+ABLAGE_PAUSE = 0.25              # Sekunden, wächst je Versuch (gesamt ≈ 9 s)
+
+
+def _ziel_name(e: Eintrag, bezeichnung: str) -> str:
+    """Original übernommen → Originalname mit Endung; sonst Anlage_K1.pdf."""
+    return e.quelle.name if (e.fehler and lesbar(e)) else dateiname(bezeichnung)
+
+
+def geplante_namen(schriftsatz_name: str | None, bez: list[str], gesamt: bool,
+                   anlagen: list[Eintrag] | None = None, schriftsatz: Eintrag | None = None) -> list[str]:
+    """Dateinamen in Ablagereihenfolge (nicht kopierbare Anlagen erscheinen nicht)."""
+    namen = []
+    if schriftsatz_name:
+        if schriftsatz is not None and schriftsatz.fehler:
+            if lesbar(schriftsatz):
+                namen.append(schriftsatz.quelle.name)
+        else:
+            namen.append(schriftsatz_name)
+    if anlagen is None:
+        namen += [dateiname(b) for b in bez]
+    else:
+        namen += [_ziel_name(e, b) for e, b in zip(anlagen, bez) if lesbar(e) or not e.fehler]
+    return namen + [VERZEICHNIS] + ([GESAMT] if gesamt else [])
 
 
 def freie_namen(ordner: Path, namen: list[str]) -> list[Path]:
@@ -351,50 +392,147 @@ def _pruefen_und_zaehlen(pfad: Path) -> int:
         return d.page_count
 
 
-def paket_erstellen(ordner: Path, schriftsatz: Eintrag, anlagen: list[Eintrag], bez: list[str],
+def _schreibrecht(ordner: Path) -> None:
+    probe = ordner / f".bnx-schreibprobe-{uuid.uuid4().hex[:6]}"
+    try:
+        probe.write_bytes(b"")
+        probe.unlink()
+    except PermissionError as ex:
+        raise AblageFehler(ordner, "Keine Schreibrechte im Zielordner (Zugriff verweigert). "
+                                   "Bitte einen anderen Ordner wählen oder die Ordnerrechte prüfen.") from ex
+
+
+def ablegen(quelle: Path, ziel: Path, warte: Callable[[float], None] | None = None) -> None:
+    """Fertige Datei in den Zielordner legen – nie überschreiben.
+
+    Erst als versteckte Teildatei kopieren, dann sofort umbenennen. Ist die Datei kurz gesperrt (z. B. weil
+    OneDrive oder der Virenscanner sie gerade liest), wird mehrmals mit wachsender Pause erneut versucht.
+    """
+    import time
+    warte = warte or time.sleep
+    teil = ziel.with_name(f".~{ziel.name}.bnx-teil")
+    letzter: OSError | None = None
+    for versuch in range(ABLAGE_VERSUCHE):
+        if ziel.exists():
+            raise AblageFehler(ziel, "wurde inzwischen von einem anderen Programm angelegt – nicht überschrieben.")
+        try:
+            with open(quelle, "rb") as q, open(teil, "xb") as z:
+                shutil.copyfileobj(q, z, 1 << 20)
+                z.flush()
+                os.fsync(z.fileno())
+            os.rename(teil, ziel)                     # os.rename überschreibt unter Windows nie
+            return
+        except FileExistsError as ex:
+            letzter = ex
+            try:
+                teil.unlink()                         # Rest eines früheren Versuchs
+            except OSError:
+                pass
+        except PermissionError as ex:
+            letzter = ex
+            try:
+                if teil.exists():
+                    teil.unlink()
+            except OSError:
+                pass
+        warte(ABLAGE_PAUSE * (versuch + 1))
+    raise AblageFehler(ziel, "Zugriff verweigert – die Datei ist gesperrt (z. B. durch OneDrive-Synchronisierung, "
+                             "Virenscanner oder ein geöffnetes Programm) oder der Ordner ist schreibgeschützt."
+                       + (f" [{letzter}]" if letzter else ""))
+
+
+def paket_erstellen(ordner: Path, schriftsatz: Eintrag | None, anlagen: list[Eintrag], bez: list[str],
                     word_zu_pdf: Callable[[Path, Path], None], gesamt_pdf: bool = False,
                     schriftsatz_name: str = "Schriftsatz.pdf", umbenennen_erlaubt: bool = False,
-                    fortschritt: Callable[[str], None] = lambda t: None) -> Paket:
-    """Paketi oluşturur. Herhangi bir adım başarısız olursa hiçbir çıktı dosyası bırakılmaz."""
+                    fortschritt: Callable[[str], None] = lambda t: None,
+                    warte: Callable[[float], None] | None = None) -> Paket:
+    """Paketi oluşturur. Bir dosya hedefe konamazsa bu çalıştırmada konan dosyalar geri alınır;
+    önceden var olan dosyalara hiç dokunulmaz.
+
+    - Hauptdokument (Schriftsatz) ist optional.
+    - Nicht lesbare/umwandelbare Anlagen werden als Original (Name, Endung, Inhalt) übernommen.
+    - Quelle selbst nicht lesbar → nicht kopiert, im Ergebnis (paket.hinweise) genannt.
+    - Gebaut wird in einem lokalen Temp-Ordner (nicht im OneDrive-/Zielordner), abgelegt wird erst am Ende.
+    """
+    import tempfile
     ordner = Path(ordner)
-    hinweise = pruefen(schriftsatz, anlagen)
-    if blockiert(hinweise):
-        raise pe.PdfFehler("\n".join(x.text for x in hinweise if x.stufe == "fehler"))
-    namen = geplante_namen(schriftsatz_name, bez, gesamt_pdf)
     ordner.mkdir(parents=True, exist_ok=True)
+    _schreibrecht(ordner)
+    namen = geplante_namen(schriftsatz_name if schriftsatz else None, bez, gesamt_pdf, anlagen, schriftsatz)
     ziele = freie_namen(ordner, namen)
     vorhanden = [ordner / n for n, z in zip(namen, ziele) if z.name != n]
     if vorhanden and not umbenennen_erlaubt:
         raise Namenskonflikt(vorhanden, ziele)
 
-    tmp = ordner / f".bnx-paket-{uuid.uuid4().hex[:8]}"
-    tmp.mkdir()
+    tmp = Path(tempfile.mkdtemp(prefix="bnx-paket-"))
     verschoben: list[Path] = []
+    hinweise: list[str] = []
+    dateien: list[Paketdatei] = []
+
+    def tmp_name() -> Path:
+        return tmp / f"{len(dateien):03d}.bin"
+
+    def original(e: Eintrag, b: str, t: str) -> None:
+        z = tmp_name()
+        shutil.copyfile(e.quelle, z)
+        dateien.append(Paketdatei("original", b, t, z, 0, ""))
+        hinweise.append(f"{b}: {e.quelle.name} – {ORIGINAL_TEXT}; nicht im Gesamt-PDF.")
+
     try:
-        dateien: list[Paketdatei] = []
-        fortschritt("Schriftsatz wird in PDF umgewandelt …")
-        s_tmp = tmp / namen[0]
-        if schriftsatz.art == "word" and not schriftsatz.bearbeitet:
-            word_zu_pdf(schriftsatz.quelle, s_tmp)          # frisch aus Word → PDF/A bleibt erhalten
-        else:
-            s_tmp.write_bytes(schriftsatz.daten)
-        dateien.append(Paketdatei("schriftsatz", "Schriftsatz", schriftsatz.titel, s_tmp,
-                                  _pruefen_und_zaehlen(s_tmp), ""))
+        if schriftsatz is not None:
+            fortschritt("Hauptdokument wird in PDF umgewandelt …")
+            if schriftsatz.fehler and lesbar(schriftsatz):
+                original(schriftsatz, "Schriftsatz", schriftsatz.titel)
+            elif schriftsatz.fehler:
+                hinweise.append(f"Hauptdokument {schriftsatz.quelle.name} wurde NICHT kopiert: {schriftsatz.fehler}")
+            else:
+                s_tmp = tmp / "schriftsatz.pdf"
+                try:
+                    if schriftsatz.art == "word" and not schriftsatz.bearbeitet:
+                        word_zu_pdf(schriftsatz.quelle, s_tmp)        # frisch aus Word → PDF/A bleibt erhalten
+                    else:
+                        s_tmp.write_bytes(schriftsatz.daten)
+                    dateien.append(Paketdatei("schriftsatz", "Schriftsatz", schriftsatz.titel, s_tmp,
+                                              _pruefen_und_zaehlen(s_tmp), ""))
+                except Exception as ex:  # noqa: BLE001 – Umwandlung fehlgeschlagen → Original übernehmen
+                    schriftsatz.fehler = f"Umwandlung fehlgeschlagen: {str(ex).splitlines()[0][:160]}"
+                    s_tmp.unlink(missing_ok=True)
+                    original(schriftsatz, "Schriftsatz", schriftsatz.titel)
         for i, (e, b) in enumerate(zip(anlagen, bez)):
             fortschritt(f"{b} wird geschrieben ({i + 1}/{len(anlagen)}) …")
-            t = tmp / namen[1 + i]
-            if e.art == "word" and e.daten is None:
-                word_zu_pdf(e.quelle, t)
-            else:                                            # auch Word-Anlagen: bereits umgewandelt (Vorschau)
-                with pymupdf.open("pdf", e.daten) as d:
-                    d.save(t, garbage=4, deflate=True)
-            dateien.append(Paketdatei("anlage", b, e.titel, t, _pruefen_und_zaehlen(t), ""))
+            t_ = e.titel.strip() or e.quelle.stem
+            if e.fehler and not lesbar(e):
+                hinweise.append(f"{b} ({e.quelle.name}) wurde NICHT kopiert: {e.fehler}")
+                dateien.append(Paketdatei("fehlt", b, t_, e.quelle, 0, ""))
+                continue
+            if e.fehler:
+                original(e, b, t_)
+                continue
+            t = tmp_name().with_suffix(".pdf")
+            try:
+                if e.art == "word" and e.daten is None:
+                    word_zu_pdf(e.quelle, t)
+                else:                                        # auch Word-Anlagen: bereits umgewandelt (Vorschau)
+                    with pymupdf.open("pdf", e.daten) as d:
+                        d.save(t, garbage=4, deflate=True)
+                dateien.append(Paketdatei("anlage", b, t_, t, _pruefen_und_zaehlen(t), ""))
+            except Exception as ex:  # noqa: BLE001
+                e.fehler = f"Umwandlung fehlgeschlagen: {str(ex).splitlines()[0][:160]}"
+                t.unlink(missing_ok=True)
+                original(e, b, t_)
         fortschritt("Anlagenverzeichnis wird erstellt …")
         v_tmp = tmp / VERZEICHNIS
-        docx_schreiben(v_tmp, "Anlagenverzeichnis",
-                       [f"zum Schriftsatz: {schriftsatz.titel}", f"Stand: {date.today():%d.%m.%Y}"],
-                       ["Anlage", "Bezeichnung", "Seiten"],
-                       [[d.bezeichnung, d.titel, str(d.seiten)] for d in dateien if d.rolle == "anlage"],
+        kopf = ([f"zum Schriftsatz: {schriftsatz.titel}"] if schriftsatz is not None else []) \
+            + [f"Stand: {date.today():%d.%m.%Y}"]
+        zeilen = []
+        for d in dateien:
+            if d.rolle == "anlage":
+                zeilen.append([d.bezeichnung, d.titel, str(d.seiten)])
+            elif d.rolle == "original" and d.bezeichnung != "Schriftsatz":
+                zeilen.append([d.bezeichnung, f"{d.titel} (Originaldatei)", "–"])
+            elif d.rolle == "fehlt":
+                zeilen.append([d.bezeichnung, f"{d.titel} (nicht kopiert – Datei nicht lesbar)", "–"])
+        docx_schreiben(v_tmp, "Anlagenverzeichnis", kopf, ["Anlage", "Bezeichnung", "Seiten"], zeilen,
                        [1700, 6000, 1100], rechts_spalten={2})
         dateien.append(Paketdatei("verzeichnis", "Anlagenverzeichnis", "Anlagenverzeichnis", v_tmp, 0, ""))
         if gesamt_pdf:
@@ -407,23 +545,42 @@ def paket_erstellen(ordner: Path, schriftsatz: Eintrag, anlagen: list[Eintrag], 
                                 g.page_count + 1])
                     with pymupdf.open(d.pfad) as q:
                         g.insert_pdf(q)
-            g.set_toc(toc)
-            g_tmp = tmp / GESAMT
-            g.save(g_tmp, garbage=4, deflate=True)
-            dateien.append(Paketdatei("gesamt", "Gesamt-PDF", "zur internen Prüfung", g_tmp,
-                                      _pruefen_und_zaehlen(g_tmp), ""))
-        # Alles fertig und geprüft → erst jetzt an die Zielnamen verschieben (nie überschreiben)
-        fortschritt("Dateien werden abgelegt …")
-        for d, ziel in zip(dateien, ziele):
-            if ziel.exists():
-                raise pe.PdfFehler(f"{ziel.name} wurde inzwischen angelegt – Vorgang abgebrochen.")
-            os.rename(d.pfad, ziel)                 # os.rename überschreibt unter Windows nie
+            if g.page_count:
+                g.set_toc(toc)
+                g_tmp = tmp / GESAMT
+                g.save(g_tmp, garbage=4, deflate=True)
+                dateien.append(Paketdatei("gesamt", "Gesamt-PDF", "zur internen Prüfung", g_tmp,
+                                          _pruefen_und_zaehlen(g_tmp), ""))
+            else:
+                hinweise.append("Gesamt-PDF nicht erstellt: keine PDF-Dateien im Paket.")
+        # Zielnamen neu bestimmen (Originale behalten ihren Namen) – nie überschreiben
+        abzulegen = [d for d in dateien if d.rolle != "fehlt"]
+        endnamen = []
+        for d in abzulegen:
+            if d.rolle == "schriftsatz":
+                endnamen.append(schriftsatz_name)
+            elif d.rolle == "anlage":
+                endnamen.append(dateiname(d.bezeichnung))
+            elif d.rolle == "original":
+                q = schriftsatz if d.bezeichnung == "Schriftsatz" and schriftsatz is not None else \
+                    next(e for e, b in zip(anlagen, bez) if b == d.bezeichnung)
+                endnamen.append(q.quelle.name)
+            else:
+                endnamen.append(VERZEICHNIS if d.rolle == "verzeichnis" else GESAMT)
+        if endnamen != namen:                      # erst beim Erstellen fehlgeschlagene Umwandlung
+            ziele = freie_namen(ordner, endnamen)
+            vorhanden = [ordner / n for n, z in zip(endnamen, ziele) if z.name != n]
+            if vorhanden and not umbenennen_erlaubt:
+                raise Namenskonflikt(vorhanden, ziele)
+        fortschritt("Dateien werden im Zielordner abgelegt …")
+        for d, ziel in zip(abzulegen, ziele):
+            ablegen(d.pfad, ziel, warte)
             verschoben.append(ziel)
             d.pfad = ziel
             d.sha256 = hashlib.sha256(ziel.read_bytes()).hexdigest()
-        return Paket(ordner, dateien)
+        return Paket(ordner, dateien, hinweise)
     except BaseException:
-        for p in verschoben:                      # halbfertiges Paket wieder entfernen
+        for p in verschoben:                      # halbfertiges Paket wieder entfernen (nur eigene neue Dateien)
             try:
                 p.unlink()
             except OSError:
@@ -442,7 +599,8 @@ def mail_betreff(schriftsatz_titel: str, bez: list[str]) -> str:
 
 def mail_text(dateien: list[Paketdatei]) -> str:
     from html import escape
-    liste = "".join(f"<li>{escape(d.bezeichnung)}: {escape(d.titel)}</li>" if d.rolle == "anlage"
-                    else f"<li>{escape(d.pfad.name)}</li>" for d in dateien)
+    liste = "".join(f"<li>{escape(d.bezeichnung)}: {escape(d.titel)}</li>" if d.rolle in ("anlage", "original")
+                    and d.bezeichnung != "Schriftsatz" else f"<li>{escape(d.pfad.name)}</li>"
+                    for d in dateien if d.rolle != "fehlt")
     return ("<p>Sehr geehrte Damen und Herren,</p><p>anbei übersenden wir den Schriftsatz nebst "
             f"Anlagen:</p><ul>{liste}</ul><p>Mit freundlichen Grüßen</p>")

@@ -17,6 +17,7 @@ ARTEN = {
     "eingang": "Antwort eingegangen",
     "entwurf": "E-Mail-Entwurf",
     "anlagen": "Anlagenpaket",
+    "dokument": "Dokument hinzugefügt",
 }
 
 SCHEMA = """
@@ -37,6 +38,7 @@ MIGRATIONEN = [
     ("vorgaenge", "quelle_id", "TEXT DEFAULT ''"),
     ("vorgaenge", "benutzer", "TEXT DEFAULT ''"),
     ("akten", "nummer_art", "TEXT DEFAULT ''"),      # 0.3: Versicherungsnummer | Schaden-Nr.
+    ("vorgaenge", "bearbeitet", "TEXT DEFAULT ''"),  # 0.4.1: Datei des Eintrags zuletzt bearbeitet
 ]
 
 AKTEN_FELDER = ("ordner", "versicherer_email", "mandant_name", "mandant_email", "notiz", "nummer_art")
@@ -84,9 +86,14 @@ class Journal:
     def verlauf(self, referenz: str) -> list[sqlite3.Row]:
         """Bir dosyanın tüm olayları, en yenisi üstte."""
         return self.con.execute(
-            "SELECT zeit, art, dokument, ergebnis, empfaenger, status, meldung, benutzer"
+            "SELECT id, zeit, art, dokument, ergebnis, empfaenger, status, meldung, benutzer, bearbeitet"
             " FROM vorgaenge WHERE referenz = ? AND status != 'abgebrochen' ORDER BY id DESC",
             (referenz,)).fetchall()
+
+    def bearbeitet_setzen(self, vorgang_id: int) -> None:
+        """Datei eines Verlauf-Eintrags wurde bearbeitet → derselbe Eintrag zeigt den Zeitpunkt."""
+        self.con.execute("UPDATE vorgaenge SET bearbeitet = ? WHERE id = ?", (_jetzt(), vorgang_id))
+        self.con.commit()
 
     def bereits_importiert(self, quelle_id: str) -> bool:
         return bool(quelle_id) and self.con.execute(
