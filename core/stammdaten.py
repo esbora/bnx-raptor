@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS mandanten (
     strasse TEXT DEFAULT '', plz TEXT DEFAULT '', ort TEXT DEFAULT '',
     telefon TEXT DEFAULT '', email TEXT DEFAULT '', notiz TEXT DEFAULT '',
     angelegt TEXT, geaendert TEXT);
+CREATE TABLE IF NOT EXISTS zaehler (name TEXT PRIMARY KEY, wert INTEGER);
 CREATE TABLE IF NOT EXISTS versicherungen (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS versicherungen (
 AKTEN_SPALTEN = [("aktenzeichen", "TEXT DEFAULT ''"), ("mandant_id", "INTEGER"), ("versicherung_id", "INTEGER"),
                  ("versicherungsnummer", "TEXT DEFAULT ''"), ("schaden_nr", "TEXT DEFAULT ''")]
 VERSICHERUNG_SPALTEN = [("standard_email", "TEXT DEFAULT ''")]        # 0.4.1: Standardadresse bei mehreren
+MANDANT_SPALTEN = [("nummer", "TEXT DEFAULT ''")]                     # 0.4.2: Mandats-Nr. M01, M02 … (fest)
 MANDANT_FELDER = ("art", "name", "strasse", "plz", "ort", "telefon", "email", "notiz")
 VERSICHERUNG_FELDER = ("name", "strasse", "plz", "ort", "telefon", "notiz")
 
@@ -56,15 +58,39 @@ class Stammdaten:
         for spalte, typ in VERSICHERUNG_SPALTEN:
             if spalte not in v_spalten:
                 self.con.execute(f"ALTER TABLE versicherungen ADD COLUMN {spalte} {typ}")
+        m_spalten = {r[1] for r in self.con.execute("PRAGMA table_info(mandanten)")}
+        for spalte, typ in MANDANT_SPALTEN:
+            if spalte not in m_spalten:
+                self.con.execute(f"ALTER TABLE mandanten ADD COLUMN {spalte} {typ}")
+        # Mandanten ohne Nummer (ältere Daten) in Anlagereihenfolge nummerieren
+        for (mid,) in self.con.execute("SELECT id FROM mandanten WHERE COALESCE(nummer, '') = '' ORDER BY id")                .fetchall():
+            self.con.execute("UPDATE mandanten SET nummer = ? WHERE id = ?", (self._naechste_nummer(), mid))
         self.con.commit()
+
+    def _naechste_nummer(self) -> str:
+        """Nächste Mandats-Nr. (M01 … M99, danach M100 …). Ein Zähler merkt sich die höchste je vergebene
+        Nummer – Nummern gelöschter Mandanten werden nie neu vergeben."""
+        hoechste = 0
+        for (n,) in self.con.execute("SELECT nummer FROM mandanten WHERE nummer LIKE 'M%'"):
+            ziffern = (n or "")[1:]
+            if ziffern.isdigit():
+                hoechste = max(hoechste, int(ziffern))
+        r = self.con.execute("SELECT wert FROM zaehler WHERE name = 'mandat'").fetchone()
+        neu = max(hoechste, r[0] if r else 0) + 1
+        self.con.execute("INSERT OR REPLACE INTO zaehler (name, wert) VALUES ('mandat', ?)", (neu,))
+        return f"M{neu:02d}"
 
     # --- Mandanten -------------------------------------------------------------
     def mandanten(self, suche: str = "") -> list[dict]:
+        """Suche auch nach Mandats-Nr., Aktenzeichen, Versicherungsnummer und Schaden-Nr. der Akten."""
         like = f"%{suche}%"
         return _zeilen(self.con.execute(
             "SELECT m.*, (SELECT COUNT(*) FROM akten a WHERE a.mandant_id = m.id) AS akten FROM mandanten m"
-            " WHERE m.name LIKE ? OR m.email LIKE ? OR m.ort LIKE ? ORDER BY m.name COLLATE NOCASE",
-            (like, like, like)))
+            " WHERE m.name LIKE ? OR m.email LIKE ? OR m.ort LIKE ? OR m.nummer LIKE ?"
+            " OR EXISTS (SELECT 1 FROM akten a WHERE a.mandant_id = m.id AND (a.referenz LIKE ?"
+            "   OR COALESCE(a.aktenzeichen, '') LIKE ? OR COALESCE(a.versicherungsnummer, '') LIKE ?"
+            "   OR COALESCE(a.schaden_nr, '') LIKE ?))"
+            " ORDER BY m.name COLLATE NOCASE", (like,) * 8))
 
     def mandant(self, mid: int) -> dict | None:
         r = _zeilen(self.con.execute("SELECT * FROM mandanten WHERE id = ?", (mid,)))
@@ -76,6 +102,7 @@ class Stammdaten:
             raise ValueError("Bitte einen Namen oder Firmennamen eingeben.")
         if mid is None:
             werte.setdefault("art", "person")
+            werte["nummer"] = self._naechste_nummer()
             cur = self.con.execute(
                 f"INSERT INTO mandanten ({', '.join(werte)}, angelegt, geaendert) VALUES "
                 f"({', '.join('?' * len(werte))}, ?, ?)", (*werte.values(), _jetzt(), _jetzt()))
@@ -202,7 +229,16 @@ class Stammdaten:
         return a
 
     def akten_von_mandant(self, mid: int) -> list[dict]:
-        return _zeilen(self.con.execute("SELECT * FROM akten WHERE mandant_id = ? ORDER BY angelegt DESC", (mid,)))
+        """Akten des Mandanten (neueste zuerst) mit Aktenzeichen, Versicherungsnummer, Schaden-Nr. und
+        Versicherungsname (`versicherung`); alte Akten wie in akte() aufbereitet."""
+        out = []
+        for (ref,) in self.con.execute("SELECT referenz FROM akten WHERE mandant_id = ? ORDER BY angelegt DESC",
+                                       (mid,)).fetchall():
+            a = self.akte(ref)
+            v = self.versicherung(a["versicherung_id"]) if isinstance(a.get("versicherung_id"), int) else None
+            a["versicherung"] = v["name"] if v else ""
+            out.append(a)
+        return out
 
     def akten_von_versicherung(self, vid: int) -> list[dict]:
         return _zeilen(self.con.execute("SELECT * FROM akten WHERE versicherung_id = ? ORDER BY angelegt DESC",

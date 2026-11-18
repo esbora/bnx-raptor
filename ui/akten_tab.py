@@ -276,7 +276,7 @@ class AktenTab(QWidget):
             self.liste.setItem(0, c, _item(""))
         self.liste.setItem(0, 4, _item(str(len(ohne))))
         st = self.ctx.stammdaten
-        mand = {m["id"]: m["name"] for m in st.mandanten()}
+        mand = {m["id"]: (f"{m['nummer']} · " if m.get("nummer") else "") + m["name"] for m in st.mandanten()}
         for r, a in enumerate(akten, 1):
             voll = st.akte(a["referenz"]) or {}
             self.liste.setItem(r, 0, _item(a["referenz"] + (f"  ·  {voll.get('aktenzeichen')}"
@@ -311,7 +311,7 @@ class AktenTab(QWidget):
         self.f_mandant.clear()
         self.f_mandant.addItem("— kein Mandant —", None)
         for m in st.mandanten():
-            self.f_mandant.addItem(m["name"], m["id"])
+            self.f_mandant.addItem((f"{m['nummer']} · " if m.get("nummer") else "") + m["name"], m["id"])
         self.f_mandant.setCurrentIndex(max(self.f_mandant.findData(akte.get("mandant_id")), 0))
         self.f_versicherung.clear()
         self.f_versicherung.addItem("— keine Versicherung —", None)

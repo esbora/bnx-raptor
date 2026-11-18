@@ -6,9 +6,10 @@ eines Feldes – kein Speichern-Knopf. Versicherer-E-Mails sind das bestehende V
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QFormLayout, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QFrame, QHBoxLayout, QHeaderView,
+                               QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+                               QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from core.extractor import is_valid_email
 from core.fehlertexte import meldung
@@ -50,6 +51,7 @@ class _Notiz(QPlainTextEdit):
 class _StammSeite(QWidget):
     FELDER: list[tuple[str, str]] = []
     NEU_TEXT = "Neu"
+    SUCHE_TEXT = "Suchen …"
 
     def __init__(self, ctx, akte_oeffnen):
         super().__init__()
@@ -62,7 +64,8 @@ class _StammSeite(QWidget):
         ll.setContentsMargins(12, 12, 12, 12)
         oben = QHBoxLayout()
         self.suche = QLineEdit()
-        self.suche.setPlaceholderText("Suchen …")
+        self.suche.setPlaceholderText(self.SUCHE_TEXT)
+        self.suche.setToolTip(getattr(self, "SUCHE_TIPP", ""))
         self.suche.textChanged.connect(self.laden)
         oben.addWidget(self.suche, 1)
         b_neu = QPushButton(theme.icon("plus", "primaer_text", 16), f"  {self.NEU_TEXT}")
@@ -147,8 +150,18 @@ class MandantenTab(_StammSeite):
     FELDER = [("name", "Name / Firma *"), ("strasse", "Straße, Nr."), ("plz", "PLZ"), ("ort", "Ort"),
               ("telefon", "Telefon"), ("email", "E-Mail"), ("notiz", "Notiz")]
     NEU_TEXT = "Neuer Mandant"
+    SUCHE_TEXT = "Suchen …"
+    SUCHE_TIPP = "Sucht nach Name, Mandats-Nr. (M01), Aktenzeichen, Versicherungsnummer oder Schaden-Nr."
+    AKTEN_SPALTEN = [("aktenzeichen", "Aktenzeichen"), ("versicherungsnummer", "Versicherungsnummer"),
+                     ("schaden_nr", "Schaden-Nr."), ("versicherung", "Versicherung")]
 
     def _formular(self):
+        self.l_nummer = QLabel("–")
+        self.l_nummer.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.l_nummer.setStyleSheet("font-weight: 700;")
+        self.l_nummer.setAccessibleName("Mandats-Nr.")
+        self.l_nummer.setToolTip("Wird automatisch vergeben und bleibt immer gleich")
+        self.form.addRow("Mandats-Nr.:", self.l_nummer)
         art = QComboBox()
         art.addItem("Person", "person")
         art.addItem("Firma", "firma")
@@ -169,9 +182,18 @@ class MandantenTab(_StammSeite):
         kopf.addWidget(self.b_ordner)
         kopf.addWidget(self.b_akte)
         self.rl.addLayout(kopf)
-        self.akten = QListWidget()
-        self.akten.setToolTip("Doppelklick öffnet die Akte")
-        self.akten.itemDoubleClicked.connect(lambda it: self.akte_oeffnen(it.data(Qt.UserRole)))
+        self.akten = QTableWidget(0, len(self.AKTEN_SPALTEN))
+        self.akten.setHorizontalHeaderLabels([t for _, t in self.AKTEN_SPALTEN])
+        self.akten.verticalHeader().setVisible(False)
+        self.akten.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.akten.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.akten.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.akten.setEditTriggers(QAbstractItemView.SelectedClicked | QAbstractItemView.EditKeyPressed)
+        self.akten.setAccessibleName("Akten / Mandate")
+        self.akten.setToolTip("Doppelklick öffnet die Akte · markiertes Feld anklicken oder F2: direkt ändern")
+        self.akten.itemDoubleClicked.connect(
+            lambda it: self.akte_oeffnen(self.akten.item(it.row(), 0).data(Qt.UserRole)))
+        self.akten.itemChanged.connect(self._akte_feld_geaendert)
         self.rl.addWidget(self.akten, 1)
 
     def _aktiv(self, an: bool):
@@ -187,8 +209,7 @@ class MandantenTab(_StammSeite):
         self.liste.clear()
         for m in st.mandanten(self.suche.text().strip()):
             it = QListWidgetItem(theme.icon("kanzlei" if m["art"] == "firma" else "start", "titel"),
-                                 f"{m['name']}" + (f"  ·  {m['ort']}" if m["ort"] else "")
-                                 + (f"  ·  {m['akten']} Akte(n)" if m["akten"] else ""))
+                                 self._listentext(m, m["akten"]))
             it.setData(Qt.UserRole, m["id"])
             self.liste.addItem(it)
             if m["id"] == wahl:
@@ -202,15 +223,37 @@ class MandantenTab(_StammSeite):
         m = self.ctx.stammdaten.mandant(self.aktuell) if self.aktuell else None
         self._aktiv(m is not None)
         self.titel.setText(m["name"] if m else "Kein Mandant ausgewählt")
+        self.l_nummer.setText((m.get("nummer") or "–") if m else "–")
         self._setzen(m or {})
         self.l_status.setText("")
-        self.akten.clear()
+        self.akten.blockSignals(True)
+        self.akten.setRowCount(0)
         if m:
-            for a in self.ctx.stammdaten.akten_von_mandant(m["id"]):
-                text = a["referenz"] + (f"  ·  Az. {a['aktenzeichen']}" if a.get("aktenzeichen") else "")
-                li = QListWidgetItem(theme.icon("akten", "titel"), text)
-                li.setData(Qt.UserRole, a["referenz"])
-                self.akten.addItem(li)
+            akten = self.ctx.stammdaten.akten_von_mandant(m["id"])
+            self.akten.setRowCount(len(akten))
+            for r, a in enumerate(akten):
+                for c, (feld, _) in enumerate(self.AKTEN_SPALTEN):
+                    it = QTableWidgetItem(str(a.get(feld) or ""))
+                    it.setData(Qt.UserRole, a["referenz"])
+                    it.setToolTip(f"Akte {a['referenz']}")
+                    if feld == "versicherung":                  # Versicherung wird in der Akte gewählt
+                        it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+                    if c == 0:
+                        it.setIcon(theme.icon("akten", "titel"))
+                    self.akten.setItem(r, c, it)
+        self.akten.blockSignals(False)
+
+    @staticmethod
+    def _listentext(m: dict, akten: int = 0) -> str:
+        return ((f"{m['nummer']}  ·  " if m.get("nummer") else "") + (m.get("name") or "")
+                + (f"  ·  {m['ort']}" if m.get("ort") else "") + (f"  ·  {akten} Akte(n)" if akten else ""))
+
+    def _akte_feld_geaendert(self, it):
+        feld = self.AKTEN_SPALTEN[it.column()][0]
+        if feld == "versicherung":
+            return
+        self.ctx.stammdaten.akte_setzen(it.data(Qt.UserRole), **{feld: it.text().strip()})
+        self._gespeichert()
 
     def neu(self):
         name, ok = QInputDialog.getText(self, "Neuer Mandant", "Name oder Firmenname:")
@@ -237,7 +280,8 @@ class MandantenTab(_StammSeite):
         self.titel.setText(w["name"])
         it = self.liste.currentItem()
         if it:
-            it.setText(w["name"] + (f"  ·  {w['ort']}" if w.get("ort") else ""))
+            st = self.ctx.stammdaten
+            it.setText(self._listentext(st.mandant(self.aktuell) or {}, len(st.akten_von_mandant(self.aktuell))))
         self._gespeichert()
 
     def neue_akte(self):

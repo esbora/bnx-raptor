@@ -119,3 +119,34 @@ def test_dokumentordner_mandant_und_versicherung(db, tmp_path):
     assert {o for o, _ in ordner} == {str(a1), str(a2)}                  # nur vorhandene, ohne Doppelte
     assert st.dokumentordner(versicherung_id=v) == [(str(a1), "A")]
     assert st.dokumentordner(mandant_id=st.mandant_speichern(None, name="Neu")) == []
+
+
+def test_mandatsnummer_fest_migration_und_suche(db):
+    import sqlite3
+    j = Journal(db)
+    j.con.executescript("CREATE TABLE mandanten (id INTEGER PRIMARY KEY AUTOINCREMENT, art TEXT DEFAULT 'person',"
+                        " name TEXT NOT NULL, strasse TEXT DEFAULT '', plz TEXT DEFAULT '', ort TEXT DEFAULT '',"
+                        " telefon TEXT DEFAULT '', email TEXT DEFAULT '', notiz TEXT DEFAULT '', angelegt TEXT,"
+                        " geaendert TEXT);"
+                        "INSERT INTO mandanten (name) VALUES ('Alt Eins'), ('Alt Zwei');")   # 0.4.1-Datenbank
+    st = Stammdaten(j.con, Adressbuch(j.con))
+    alt = {m["name"]: m["nummer"] for m in st.mandanten()}
+    assert alt == {"Alt Eins": "M01", "Alt Zwei": "M02"}
+    neu = st.mandant_speichern(None, name="Muster GmbH", art="firma")
+    assert st.mandant(neu)["nummer"] == "M03"
+    st.mandant_speichern(neu, name="Muster GmbH & Co. KG", nummer="M99")       # Nummer nicht änderbar
+    assert st.mandant(neu)["nummer"] == "M03"
+    st.mandant_loeschen(st.mandanten("Alt Eins")[0]["id"])
+    letzte = st.mandant_speichern(None, name="Neu")
+    assert st.mandant(letzte)["nummer"] == "M04"
+    st.mandant_loeschen(letzte)                                                 # höchste Nummer gelöscht …
+    assert st.mandant(st.mandant_speichern(None, name="Neu 2"))["nummer"] == "M05"   # … wird nie neu vergeben
+    st.akte_anlegen("2026/0815", aktenzeichen="0815/26", mandant_id=neu, versicherungsnummer="FV-4711",
+                    schaden_nr="SCH 99")
+    for begriff in ("M03", "0815/26", "FV-4711", "SCH 99"):
+        assert [m["id"] for m in st.mandanten(begriff)] == [neu], begriff
+    a = st.akten_von_mandant(neu)[0]
+    assert (a["aktenzeichen"], a["versicherungsnummer"], a["schaden_nr"], a["versicherung"]) == \
+        ("0815/26", "FV-4711", "SCH 99", "")
+    Stammdaten(j.con, Adressbuch(j.con))                                        # erneutes Öffnen: Nummern bleiben
+    assert st.mandant(neu)["nummer"] == "M03"
