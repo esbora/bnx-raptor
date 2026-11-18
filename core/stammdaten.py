@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS versicherungen (
 """
 AKTEN_SPALTEN = [("aktenzeichen", "TEXT DEFAULT ''"), ("mandant_id", "INTEGER"), ("versicherung_id", "INTEGER"),
                  ("versicherungsnummer", "TEXT DEFAULT ''"), ("schaden_nr", "TEXT DEFAULT ''")]
+VERSICHERUNG_SPALTEN = [("standard_email", "TEXT DEFAULT ''")]        # 0.4.1: Standardadresse bei mehreren
 MANDANT_FELDER = ("art", "name", "strasse", "plz", "ort", "telefon", "email", "notiz")
 VERSICHERUNG_FELDER = ("name", "strasse", "plz", "ort", "telefon", "notiz")
 
@@ -51,6 +52,10 @@ class Stammdaten:
         for spalte, typ in AKTEN_SPALTEN:
             if vorhanden and spalte not in vorhanden:
                 self.con.execute(f"ALTER TABLE akten ADD COLUMN {spalte} {typ}")
+        v_spalten = {r[1] for r in self.con.execute("PRAGMA table_info(versicherungen)")}
+        for spalte, typ in VERSICHERUNG_SPALTEN:
+            if spalte not in v_spalten:
+                self.con.execute(f"ALTER TABLE versicherungen ADD COLUMN {spalte} {typ}")
         self.con.commit()
 
     # --- Mandanten -------------------------------------------------------------
@@ -101,7 +106,8 @@ class Stammdaten:
             if any(k == s for s in schluessel):
                 continue
             eintrag = nur_buch.setdefault(k.voll, {"id": None, "name": r["name"], "strasse": "", "plz": "", "ort": "",
-                                                  "telefon": "", "notiz": "", "emails": [], "quelle": "Adressbuch"})
+                                                  "telefon": "", "notiz": "", "emails": [], "quelle": "Adressbuch",
+                                                  "standard_email": ""})
             if r["email"] not in eintrag["emails"]:
                 eintrag["emails"].append(r["email"])
         alle = eigene + list(nur_buch.values())
@@ -147,10 +153,18 @@ class Stammdaten:
         if v:
             self.buch.hinzufuegen(v["name"], email)
 
+    def standard_email_setzen(self, vid: int, email: str) -> None:
+        """Standardadresse bei mehreren E-Mail-Adressen (leer = keine)."""
+        self.con.execute("UPDATE versicherungen SET standard_email = ?, geaendert = ? WHERE id = ?",
+                         (email.strip(), _jetzt(), vid))
+        self.con.commit()
+
     def email_entfernen(self, vid: int, email: str) -> None:
         v = self.versicherung(vid)
         if not v:
             return
+        if (v.get("standard_email") or "").lower() == email.lower():
+            self.standard_email_setzen(vid, "")
         for r in self.buch.treffer(v["name"]):
             if r["email"].lower() == email.lower():
                 self.buch.loeschen(r["id"])

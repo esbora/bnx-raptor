@@ -130,18 +130,28 @@ class AktenTab(QWidget):
         self.f_vnr = QLineEdit()
         self.f_snr = QLineEdit()
         self.f_mandant_email = QLineEdit()
-        self.f_versicherer = QLineEdit()
+        self.f_versicherer = QComboBox()            # eine oder mehrere Adressen der Versicherung, frei änderbar
+        self.f_versicherer.setEditable(True)
+        self.f_versicherer.setInsertPolicy(QComboBox.NoInsert)
         self.f_notiz = QLineEdit()
+        self.l_mandant_kontakt = theme.rolle(QLabel(""), "gedimmt")
+        self.l_vers_kontakt = theme.rolle(QLabel(""), "gedimmt")
+        for l_ in (self.l_mandant_kontakt, self.l_vers_kontakt):
+            l_.setWordWrap(True)
+            l_.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.l_mandant_kontakt.setAccessibleName("Kontakt Mandant")
+        self.l_vers_kontakt.setAccessibleName("Kontakt Versicherung")
         for w, n in ((self.f_aktenzeichen, "Aktenzeichen"), (self.f_mandant, "Mandant"), (self.f_versicherung,
                      "Versicherung"), (self.f_vnr, "Versicherungsnummer"), (self.f_snr, "Schaden-Nr."),
                      (self.f_mandant_email, "E-Mail Mandant"), (self.f_versicherer, "E-Mail Versicherung"),
                      (self.f_notiz, "Notiz")):
             w.setAccessibleName(n)
-        for r, (l1, w1, l2, w2) in enumerate((("Aktenzeichen:", self.f_aktenzeichen, "Notiz:", self.f_notiz),
-                                              ("Mandant:", self.f_mandant, "Versicherung:", self.f_versicherung),
-                                              ("Versicherungsnr.:", self.f_vnr, "Schaden-Nr.:", self.f_snr),
-                                              ("E-Mail Mandant:", self.f_mandant_email, "E-Mail Versicherung:",
-                                               self.f_versicherer))):
+        zeilen = (("Aktenzeichen:", self.f_aktenzeichen, "Notiz:", self.f_notiz),
+                  ("Mandant:", self.f_mandant, "Versicherung:", self.f_versicherung),
+                  ("", self.l_mandant_kontakt, "", self.l_vers_kontakt),          # Kontaktzeile aus den Stammdaten
+                  ("Versicherungsnr.:", self.f_vnr, "Schaden-Nr.:", self.f_snr),
+                  ("E-Mail Mandant:", self.f_mandant_email, "E-Mail Versicherung:", self.f_versicherer))
+        for r, (l1, w1, l2, w2) in enumerate(zeilen):
             fl.addWidget(QLabel(l1), r, 0)
             fl.addWidget(w1, r, 1)
             fl.addWidget(QLabel(l2), r, 2)
@@ -149,11 +159,13 @@ class AktenTab(QWidget):
         fl.setColumnStretch(1, 1)
         fl.setColumnStretch(3, 1)
         self.l_gespeichert = theme.rolle(QLabel(""), "gedimmt")
-        fl.addWidget(self.l_gespeichert, 4, 0, 1, 4)
-        for w in (self.f_aktenzeichen, self.f_vnr, self.f_snr, self.f_mandant_email, self.f_versicherer, self.f_notiz):
+        fl.addWidget(self.l_gespeichert, len(zeilen), 0, 1, 4)
+        for w in (self.f_aktenzeichen, self.f_vnr, self.f_snr, self.f_mandant_email, self.f_notiz):
             w.editingFinished.connect(self.akte_speichern)
-        self.f_mandant.currentIndexChanged.connect(lambda *_: self.akte_speichern())
-        self.f_versicherung.currentIndexChanged.connect(lambda *_: self.akte_speichern())
+        self.f_versicherer.lineEdit().editingFinished.connect(self.akte_speichern)
+        self.f_versicherer.activated.connect(lambda *_: self.akte_speichern())
+        self.f_mandant.currentIndexChanged.connect(lambda *_: self._mandant_gewaehlt())
+        self.f_versicherung.currentIndexChanged.connect(lambda *_: self._versicherung_gewaehlt())
         rl.addWidget(self.stamm)
 
         self.l_verlauf = QLabel("Verlauf – Doppelklick öffnet die Datei zum Bearbeiten; mehrere markieren für E-Mail:")
@@ -275,6 +287,85 @@ class AktenTab(QWidget):
             self.f_versicherung.addItem(v["name"], v["id"] if v["id"] is not None else "buch:" + v["name"])
         self.f_versicherung.setCurrentIndex(max(self.f_versicherung.findData(akte.get("versicherung_id")), 0))
 
+    # --- Kontaktdaten aus „Mandanten“ / „Versicherungen“ ------------------------
+    @staticmethod
+    def _kontakt_text(d: dict | None, emails: list[str] | None = None) -> str:
+        if not d:
+            return ""
+        teile = []
+        ort = " ".join(x for x in (d.get("plz") or "", d.get("ort") or "") if x)
+        adresse = ", ".join(x for x in (d.get("strasse") or "", ort) if x)
+        if adresse:
+            teile.append(adresse)
+        if d.get("telefon"):
+            teile.append(f"Tel. {d['telefon']}")
+        mails = emails if emails is not None else ([d["email"]] if d.get("email") else [])
+        if mails:
+            teile.append(", ".join(mails))
+        return " · ".join(teile) or "Keine Kontaktdaten gespeichert"
+
+    def _mandant_daten(self) -> dict | None:
+        mid = self.f_mandant.currentData()
+        return self.ctx.stammdaten.mandant(mid) if mid else None
+
+    def _versicherung_daten(self) -> tuple[dict | None, list[str], str]:
+        """(Datensatz, E-Mail-Adressen, Standardadresse) der gewählten Versicherung."""
+        vid = self.f_versicherung.currentData()
+        st = self.ctx.stammdaten
+        if isinstance(vid, str) and vid.startswith("buch:"):
+            name = vid[5:]
+            return {"name": name}, [e for e, _ in st.buch.emails(name)], ""
+        v = st.versicherung(vid) if vid else None
+        if not v:
+            return None, [], ""
+        return v, list(v["emails"]), v.get("standard_email") or ""
+
+    def _kontakte_zeigen(self):
+        m = self._mandant_daten()
+        self.l_mandant_kontakt.setText(self._kontakt_text(m))
+        self.l_mandant_kontakt.setVisible(m is not None)
+        v, mails, std = self._versicherung_daten()
+        self.l_vers_kontakt.setText(self._kontakt_text(v, [f"{e} (Standard)" if e == std else e for e in mails]))
+        self.l_vers_kontakt.setVisible(v is not None)
+
+    def _vers_adressen_setzen(self, auswahl: str | None):
+        """Liste der Versicherungsadressen füllen; auswahl=None → Text unverändert lassen (gespeicherter Wert)."""
+        _v, mails, _std = self._versicherung_daten()
+        text = self.f_versicherer.currentText() if auswahl is None else auswahl
+        self.f_versicherer.blockSignals(True)
+        self.f_versicherer.clear()
+        self.f_versicherer.addItems(mails)
+        self.f_versicherer.setCurrentIndex(-1)
+        self.f_versicherer.setEditText(text)
+        self.f_versicherer.lineEdit().setPlaceholderText("Bitte Adresse auswählen …" if len(mails) > 1 else "")
+        self.f_versicherer.blockSignals(False)
+
+    def _mandant_gewaehlt(self):
+        """Neuer Mandant gewählt: seine E-Mail übernehmen (fehlt sie, bleibt das Feld leer)."""
+        if self._laedt:
+            return
+        m = self._mandant_daten()
+        self.f_mandant_email.setText((m or {}).get("email") or "")
+        self._kontakte_zeigen()
+        self.akte_speichern()
+
+    def _versicherung_gewaehlt(self):
+        """Neue Versicherung gewählt: eine Adresse → übernehmen; mehrere → Standardadresse, sonst Auswahl."""
+        if self._laedt:
+            return
+        _v, mails, std = self._versicherung_daten()
+        if len(mails) == 1:
+            neu = mails[0]
+        elif std and std in mails:
+            neu = std
+        else:
+            neu = ""                                  # mehrere ohne Standard (oder keine): Sie wählen
+        self._vers_adressen_setzen(neu)
+        self._kontakte_zeigen()
+        if len(mails) > 1 and not neu:
+            self.f_versicherer.showPopup()
+        self.akte_speichern()
+
     def akte_anzeigen(self):
         ref = self.aktuelle_referenz()
         ohne = ref == OHNE_AKTE
@@ -298,8 +389,9 @@ class AktenTab(QWidget):
         self._combos_fuellen(akte)
         self.f_vnr.setText(akte.get("versicherungsnummer") or "")
         self.f_snr.setText(akte.get("schaden_nr") or "")
-        self.f_mandant_email.setText(akte["mandant_email"])
-        self.f_versicherer.setText(akte["versicherer_email"])
+        self.f_mandant_email.setText(akte["mandant_email"])       # aktenbezogene Adresse (ggf. von Hand geändert)
+        self._vers_adressen_setzen(akte["versicherer_email"] or "")
+        self._kontakte_zeigen()
         self.f_notiz.setText(akte["notiz"])
         self.l_gespeichert.setText("Änderungen werden automatisch gespeichert.")
         self._laedt = False
@@ -371,22 +463,22 @@ class AktenTab(QWidget):
         vid = self.f_versicherung.currentData()
         if isinstance(vid, str) and vid.startswith("buch:"):       # Adressbuch-Versicherung → Datensatz anlegen
             vid = st.versicherung_speichern(None, name=vid[5:])
+        v_email = self.f_versicherer.currentText().strip()
+        if v_email and not is_valid_email(v_email):
+            theme.status_setzen(self.l_gespeichert, "warn", "E-Mail der Versicherung ist ungültig – nicht gespeichert.")
+            return
+        # Nur diese Akte: von Hand geänderte Adressen werden hier gespeichert, die Stammdaten bleiben unverändert
         werte = dict(aktenzeichen=self.f_aktenzeichen.text().strip(), mandant_id=mid, versicherung_id=vid,
                      versicherungsnummer=self.f_vnr.text().strip(), schaden_nr=self.f_snr.text().strip(),
-                     mandant_email=email, versicherer_email=self.f_versicherer.text().strip(),
-                     notiz=self.f_notiz.text().strip())
+                     mandant_email=email, versicherer_email=v_email, notiz=self.f_notiz.text().strip())
         if mid:
-            m = st.mandant(mid)
-            werte["mandant_name"] = m["name"]
-            if not email and m["email"]:
-                werte["mandant_email"] = m["email"]
-                self.f_mandant_email.setText(m["email"])
-        if vid and not werte["versicherer_email"]:
-            v = st.versicherung(vid)
-            if v and v["emails"]:
-                werte["versicherer_email"] = v["emails"][0]
-                self.f_versicherer.setText(v["emails"][0])
+            werte["mandant_name"] = st.mandant(mid)["name"]
         st.akte_setzen(ref, **werte)
+        if isinstance(self.f_versicherung.currentData(), str) and vid:   # Adressbuch-Eintrag ist jetzt Datensatz
+            self._laedt = True
+            i = self.f_versicherung.currentIndex()
+            self.f_versicherung.setItemData(i, vid)
+            self._laedt = False
         theme.status_setzen(self.l_gespeichert, "ok", "Gespeichert")
 
     def neue_akte(self):
@@ -510,19 +602,21 @@ class AktenTab(QWidget):
                                                                      ".jpg", ".png", ".xlsx"):
                 dateien.append(Path(p))
         cfg = self.ctx.cfg
+        self.akte_speichern()                     # zuletzt angezeigte Adresse gilt (auch ohne Feldwechsel)
         if an == "mandant":
-            vorschlag, betreff, text, art = (akte["mandant_email"], cfg["mandant_betreff_vorlage"],
-                                             cfg["mandant_info_text_html"], "mandant")
+            empf, betreff, text, art = (self.f_mandant_email.text().strip(), cfg["mandant_betreff_vorlage"],
+                                        cfg["mandant_info_text_html"], "mandant")
         else:
-            vorschlag, betreff, text, art = (akte["versicherer_email"], cfg["betreff_vorlage"],
-                                             cfg["mail_text_html"], "entwurf")
-        empf, ok = QInputDialog.getText(self, "Empfänger",
-                                        f"E-Mail-Adresse ({len(dateien)} Anlage(n)):", text=vorschlag)
-        if not ok or not empf.strip():
-            return
-        if not is_valid_email(empf):
-            QMessageBox.warning(self, "Ungültig", f"„{empf}“ ist keine gültige E-Mail-Adresse.")
-            return
+            empf, betreff, text, art = (self.f_versicherer.currentText().strip(), cfg["betreff_vorlage"],
+                                        cfg["mail_text_html"], "entwurf")
+        if not empf or not is_valid_email(empf):          # nur wenn im Formular keine gültige Adresse steht
+            empf, ok = QInputDialog.getText(self, "Empfänger",
+                                            f"E-Mail-Adresse ({len(dateien)} Anlage(n)):", text=empf)
+            if not ok or not empf.strip():
+                return
+            if not is_valid_email(empf):
+                QMessageBox.warning(self, "Ungültig", f"„{empf}“ ist keine gültige E-Mail-Adresse.")
+                return
         try:
             msg = entwurf_erstellen(self.ctx, MailDraft(
                 to=empf.strip(), subject=betreff_bilden(betreff, ref, akte.get("nummer_art", "")), html_body=text,
@@ -530,8 +624,10 @@ class AktenTab(QWidget):
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Fehler", str(e))
             return
-        if an == "mandant" and not akte["mandant_email"]:
-            self.ctx.journal.akte_speichern(ref, mandant_email=empf.strip())
+        feld = self.f_mandant_email if an == "mandant" else self.f_versicherer.lineEdit()
+        if feld.text().strip() != empf.strip():           # im Dialog eingegebene Adresse gilt für diese Akte
+            feld.setText(empf.strip())
+            self.akte_speichern()
         self.ctx.journal.add("akte", "", str(dateien[0]) if dateien else "", empf.strip(), ref,
                              meldung=f"{msg} – Anlagen: " + ", ".join(d.name for d in dateien),
                              art=art)

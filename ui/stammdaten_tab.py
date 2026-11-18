@@ -241,7 +241,11 @@ class VersicherungenTab(_StammSeite):
         self.b_mail.clicked.connect(self.mail_hinzufuegen)
         self.b_mail_weg = QPushButton("Entfernen")
         self.b_mail_weg.clicked.connect(self.mail_entfernen)
+        self.b_standard = QPushButton("★ Als Standard")
+        self.b_standard.setToolTip("Diese Adresse wird in Akten automatisch eingetragen, wenn es mehrere gibt")
+        self.b_standard.clicked.connect(self.mail_standard)
         kopf.addWidget(self.b_mail)
+        kopf.addWidget(self.b_standard)
         kopf.addWidget(self.b_mail_weg)
         self.rl.addLayout(kopf)
         self.mails = QListWidget()
@@ -254,7 +258,7 @@ class VersicherungenTab(_StammSeite):
 
     def _aktiv(self, an: bool):
         super()._aktiv(an)
-        for b in ("b_mail", "b_mail_weg"):
+        for b in ("b_mail", "b_mail_weg", "b_standard"):
             if hasattr(self, b):
                 getattr(self, b).setEnabled(an)
 
@@ -297,8 +301,11 @@ class VersicherungenTab(_StammSeite):
         self.mails.clear()
         self.akten.clear()
         if v:
+            std = (v.get("standard_email") or "").lower()
             for e in v["emails"]:
-                self.mails.addItem(e)
+                it = QListWidgetItem(f"★ {e}  (Standard)" if e.lower() == std else e)
+                it.setData(Qt.UserRole, e)
+                self.mails.addItem(it)
             if v["id"] is not None:
                 for a in self.ctx.stammdaten.akten_von_versicherung(v["id"]):
                     li = QListWidgetItem(theme.icon("akten", "titel"), a["referenz"])
@@ -350,5 +357,13 @@ class VersicherungenTab(_StammSeite):
         vid = self._id_sicher()
         if it is None or vid is None:
             return
-        self.ctx.stammdaten.email_entfernen(vid, it.text())
+        self.ctx.stammdaten.email_entfernen(vid, it.data(Qt.UserRole) or it.text())
+        self.laden()
+
+    def mail_standard(self):
+        it = self.mails.currentItem()
+        vid = self._id_sicher()
+        if it is None or vid is None:
+            return
+        self.ctx.stammdaten.standard_email_setzen(vid, it.data(Qt.UserRole) or it.text())
         self.laden()

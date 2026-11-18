@@ -85,3 +85,19 @@ def test_versicherungen_nutzen_das_adressbuch(db):
     assert st.versicherung(vid)["emails"] == ["schaden@example.com"]
     st.akte_anlegen("FV-1", versicherung_id=vid)
     assert st.akten_von_versicherung(vid)[0]["referenz"] == "FV-1"
+
+
+def test_versicherung_standard_email_und_entfernen(db):
+    j = Journal(db)
+    st = Stammdaten(j.con, Adressbuch(j.con))
+    vid = st.versicherung_speichern(None, name="Gamma Versicherung AG (fiktiv)")
+    st.email_hinzufuegen(vid, "a@example.com")
+    st.email_hinzufuegen(vid, "b@example.com")
+    assert st.versicherung(vid)["standard_email"] == ""
+    st.standard_email_setzen(vid, "b@example.com")
+    assert st.versicherung(vid)["standard_email"] == "b@example.com"
+    j.con.close()
+    st2 = Stammdaten(Journal(db).con, Adressbuch(Journal(db).con))          # Neustart
+    assert st2.versicherung(vid)["standard_email"] == "b@example.com"
+    st2.email_entfernen(vid, "b@example.com")
+    assert st2.versicherung(vid)["standard_email"] == "" and st2.versicherung(vid)["emails"] == ["a@example.com"]
