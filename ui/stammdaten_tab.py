@@ -206,6 +206,14 @@ class MandantenTab(_StammSeite):
         self._feld("notiz", "Notiz", notiz)
 
     def _extra(self):
+        # Mandant löschen: Rechtsklick auf den Mandanten oder Entf-Taste
+        from PySide6.QtGui import QKeySequence, QShortcut
+        self.liste.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.liste.customContextMenuRequested.connect(self._kontextmenue)
+        self.liste.setToolTip("Rechtsklick: Mandant löschen")
+        entf = QShortcut(QKeySequence.Delete, self.liste)
+        entf.setContext(Qt.WidgetShortcut)
+        entf.activated.connect(self.loeschen)
         self.rl.addSpacing(8)
         kopf = QHBoxLayout()
         kopf.addWidget(theme.ueberschrift("Akten / Mandate", "h3"), 1)
@@ -388,6 +396,47 @@ class MandantenTab(_StammSeite):
             st = self.ctx.stammdaten
             it.setText(self._listentext(st.mandant(self.aktuell) or {}, len(st.akten_von_mandant(self.aktuell))))
         self._gespeichert()
+
+    def _kontextmenue(self, pos):
+        from PySide6.QtWidgets import QMenu
+        it = self.liste.itemAt(pos)
+        if it is None:
+            return
+        self.liste.setCurrentItem(it)
+        menu = QMenu(self)
+        menu.addAction(theme.icon("loeschen", "fehler", 16), "Mandant löschen …", self.loeschen)
+        menu.exec(self.liste.viewport().mapToGlobal(pos))
+
+    def loeschen(self):
+        """Mandant nach Rückfrage löschen. Akten, Verlauf und Dokumente bleiben erhalten (nur ohne Mandant);
+        die Mandats-Nr. wird nie neu vergeben."""
+        st = self.ctx.stammdaten
+        m = st.mandant(self.aktuell) if self.aktuell else None
+        if not m:
+            return
+        n = len(st.akten_von_mandant(m["id"]))
+        name = (f"{m['nummer']} · " if m.get("nummer") else "") + m["name"]
+        text = f"Mandant „{name}“ wirklich löschen?"
+        info = ("Die Akte und ihre Dokumente bleiben erhalten – sie ist danach keinem Mandanten zugeordnet."
+                if n == 1 else
+                f"Die {n} Akten und ihre Dokumente bleiben erhalten – sie sind danach keinem Mandanten zugeordnet."
+                if n else "Dieser Mandant hat keine Akten.")
+        box = QMessageBox(QMessageBox.Warning, "Mandant löschen", text, parent=self)
+        box.setInformativeText(info + "\nDie Mandats-Nr. wird nicht neu vergeben.")
+        ja = box.addButton("Löschen", QMessageBox.DestructiveRole)
+        nein = box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(nein)
+        box.setEscapeButton(nein)
+        box.exec()
+        if box.clickedButton() is not ja:
+            return
+        zeile = self.liste.currentRow()
+        st.mandant_loeschen(m["id"])
+        self.aktuell = None
+        self.laden()
+        if self.liste.count():
+            self.liste.setCurrentRow(min(zeile, self.liste.count() - 1))
+        theme.status_setzen(self.l_status, "ok", f"„{name}“ gelöscht")
 
     def neue_akte(self):
         if not self.aktuell:

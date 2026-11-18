@@ -232,6 +232,7 @@ _SVG = {
     "uebernehmen": '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     "mail": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
+    "loeschen": '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
     "paket": '<path d="M12 3 4 7v10l8 4 8-4V7z"/><path d="m4 7 8 4 8-4M12 11v10"/>',
     "brief": '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M8.5 12h7M8.5 15h7M8.5 18h4"/>',
     "lupe": '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5.5 5.5"/>',
