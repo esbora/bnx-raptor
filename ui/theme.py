@@ -121,14 +121,28 @@ QToolTip {{ background: {f['titel']}; color: {f['karte']}; border: none; padding
 """
 
 
+def _deutsch(app: QApplication) -> None:
+    """Deutsche Beschriftung der Qt-Standarddialoge (Ja/Nein, Öffnen, Abbrechen, Dateiname …)."""
+    from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+    if getattr(app, "_bnx_uebersetzung", None):
+        return
+    tr = QTranslator(app)
+    if tr.load(QLocale(QLocale.German, QLocale.Germany), "qtbase", "_", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
+        app.installTranslator(tr)
+        app._bnx_uebersetzung = tr
+
+
 def anwenden(app: QApplication) -> None:
     """Design einmal beim Start setzen (nach QApplication, vor dem ersten Fenster)."""
     F.clear()
     F.update(HELL)                               # immer hell
-    try:                                         # Qt ≥ 6.8: auch Titelleisten/Systemdialoge hell
+    try:                                         # Qt ≥ 6.8: auch Titelleisten hell
         QGuiApplication.styleHints().setColorScheme(Qt.ColorScheme.Light)
     except Exception:  # noqa: BLE001
         pass
+    # Windows-Datei-/Ordnerdialoge folgen dem dunklen Windows-Schema → Qt-eigene (helle) Dialoge verwenden
+    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
+    _deutsch(app)
     app.setStyle("Fusion")
     schrift = QFont(SCHRIFT, 10)
     schrift.setHintingPreference(QFont.PreferFullHinting)
