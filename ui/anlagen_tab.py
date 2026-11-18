@@ -114,7 +114,6 @@ class AnlagenTab(QWidget):
         self._aufbau()
         from .hover_vorschau import HoverVorschau
         self.hover = HoverVorschau(self, aktiv=lambda: bool(self.cfg.get("grosse_vorschau", True)))
-        self.hover.anmelden(self.liste, self._hover_liste)
         self.hover.anmelden(self.seiten, self._hover_seite)
 
     # ------------------------------------------------------------- Aufbau
@@ -212,7 +211,7 @@ class AnlagenTab(QWidget):
             f"QListWidget::item {{ border: 3px solid transparent; border-radius: 8px; padding: 2px; }}"
             f"QListWidget::item:selected {{ border: 3px solid {theme.F['primaer']}; background: {theme.F['auswahl']}; }}")
         self.seiten.itemDoubleClicked.connect(lambda it: self.im_editor(self.seiten.row(it)))
-        self.seiten.viewport().installEventFilter(self)
+        self.seiten.installEventFilter(self)
         ml.addWidget(self.seiten, 1)
         sk = QHBoxLayout()
         sk.setSpacing(6)
@@ -666,6 +665,7 @@ class AnlagenTab(QWidget):
                 self.seiten.addItem(QListWidgetItem("Word-Dokument – wird beim Erstellen in PDF umgewandelt"))
             return
         self._render_doc = e.dokument()
+        self._raster_signatur = None
         for p in self._render_doc:
             hinweis = " ⚠ gedreht?" if p.number in e.drehvorschlag else ""
             self.seiten.addItem(QListWidgetItem(f"S. {p.number + 1}{hinweis}"))
@@ -679,8 +679,8 @@ class AnlagenTab(QWidget):
         self._raster_anpassen()
 
     def eventFilter(self, obj, ev):
-        if obj is self.seiten.viewport() and ev.type() == QEvent.Resize:
-            self._raster_takt.start()               # Fenster/Bereich geändert → Größe nach kurzer Pause anpassen
+        if obj is self.seiten and ev.type() == QEvent.Resize:
+            self._raster_takt.start()               # nur echte Größenänderung der Liste (nicht der Bildlaufleiste)
         return super().eventFilter(obj, ev)
 
     def _raster_anpassen(self):
@@ -691,13 +691,23 @@ class AnlagenTab(QWidget):
             return
         r0 = doc[0].rect
         verh = r0.width / max(r0.height, 1)
-        vp = self.seiten.viewport().size()
-        r = seiten_raster(doc.page_count, vp.width() - (14 if doc.page_count > 1 else 2), vp.height() - 2, verh,
-                          min_breite=260, abstand=12, beschriftung=22)
+        # Feste Breite OHNE Rücksicht auf die Bildlaufleiste: Platz für sie ist immer reserviert. Sonst entsteht ein
+        # Kreislauf (Leiste erscheint → schmaler → Seiten kleiner → Leiste verschwindet → breiter …) = Flackern.
+        rahmen = 2 * self.seiten.frameWidth()
+        leiste = self.seiten.style().pixelMetric(self.seiten.style().PixelMetric.PM_ScrollBarExtent)
+        breite = self.seiten.width() - rahmen - leiste - 4
+        hoehe = self.seiten.height() - rahmen - 4
+        signatur = (id(doc), doc.page_count, breite, hoehe)
+        if signatur == getattr(self, "_raster_signatur", None):
+            return                                  # nichts geändert → nicht neu zeichnen
+        self._raster_signatur = signatur
+        r = seiten_raster(doc.page_count, breite, hoehe, verh, min_breite=260, abstand=12, beschriftung=22)
         kachel = (max(r.kachel_b, 60), max(r.kachel_h, 80))
-        self.seiten.setIconSize(QSize(*kachel))
-        breite = vp.width() - (14 if r.rollen else 2)
         zelle = max(kachel[0] + 12, breite // max(r.spalten, 1))   # Zellen füllen die Breite → Seiten mittig
+        if kachel == self._kachel and self.seiten.gridSize() == QSize(zelle, kachel[1] + 30)                 and not self._render_warteschlange and all(not self.seiten.item(i).icon().isNull()
+                                                           for i in range(self.seiten.count())):
+            return                                  # gleiche Größe, schon gezeichnet → nichts tun
+        self.seiten.setIconSize(QSize(*kachel))
         self.seiten.setGridSize(QSize(zelle, kachel[1] + 30))
         self._kachel = kachel
         self._render_warteschlange = list(range(doc.page_count))
@@ -783,24 +793,6 @@ class AnlagenTab(QWidget):
         except pe.PdfFehler as ex:
             QMessageBox.warning(self, "Seiten", meldung(ex))
         self._geaendert()
-
-    def _hover_liste(self, pos):
-        from .hover_vorschau import Quelle, quelle_aus_datei
-        it = self.liste.itemAt(pos)
-        if it is None:
-            return None
-        e = self.eintraege.get(it.data(0, Qt.UserRole))
-        if e is None:
-            return None
-        bez = f"{it.text(0)}: {e.titel}" if it.text(0) else e.titel
-        if e.id == self._offen_id and self._offen:
-            self.drehungen_schreiben()
-        if e.daten:
-            return Quelle(("anlage", e.id, id(e.daten)), e.quelle.name, bez, daten=e.daten)
-        q = quelle_aus_datei(e.quelle, bez)
-        if e.fehler and not q.hinweis:
-            q.hinweis = "Keine Vorschau verfügbar – Datei ist beschädigt oder leer."
-        return q
 
     def _hover_seite(self, pos):
         from .hover_vorschau import Quelle

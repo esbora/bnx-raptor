@@ -93,7 +93,7 @@ class AnhangVorschau(QDialog):
         self.bild.setAlignment(Qt.AlignCenter)
         self.bild.setToolTip("Maus darüber halten: große Vorschau")
         zeile.addWidget(self.bild, 1)
-        # 0.4.2: große Vorschau beim Darüberfahren (Zeilen und kleines Vorschaubild)
+        # 0.4.2: große Vorschau nur über dem Vorschaubild (nicht über den Textzeilen)
         from .hover_vorschau import HoverVorschau, quelle_aus_datei
         self._beschreibung = {str(pf): b for pf, b, _ in dateien}
         self.hover = HoverVorschau(self, aktiv=aktiv or (lambda: True))
@@ -108,7 +108,6 @@ class AnhangVorschau(QDialog):
         def bild_quelle(_pos):
             it = self.liste.currentItem()
             return zeile_quelle(self.liste.visualItemRect(it).center()) if it is not None else None
-        self.hover.anmelden(self.liste, zeile_quelle)
         self.hover.anmelden(self.bild, bild_quelle)
         lay.addLayout(zeile, 1)
         bb = QDialogButtonBox()

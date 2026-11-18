@@ -192,7 +192,7 @@ Werkzeug {ui('Text bearbeiten')}. {ui('OK – Änderungen speichern')} übernimm
 (Vorschau und Angaben werden aktualisiert). Außerdem: {ui('Links drehen')} / {ui('Rechts drehen')} (jeder Klick 90°, auch mehrere Seiten gleichzeitig), {ui('Löschen')}, {ui('Als eigene Anlage')},
 {ui('Texterkennung (OCR)')}. Die Originaldateien bleiben unverändert.</li></ol>
 {bild('11_anlagen_geordnet.png', 'Geordnet und nummeriert; das Hauptdokument steht oben.', 470)}
-<div class='hinweis'><b>Große Vorschau:</b> Maus kurz über eine Anlage, eine Seite oder einen Anhang halten – eine große, gut lesbare Vorschau öffnet sich (Mausrad oder ←/→ blättert, Esc schließt). Abschaltbar unter {ui('Einstellungen')} → {ui('Große Vorschau beim Darüberfahren')}.</div>
+<div class='hinweis'><b>Große Vorschau:</b> Maus kurz über eine Seite in der {ui('Vorschau')} (bzw. über das Vorschaubild bei den Anhängen) halten – eine große, gut lesbare Vorschau öffnet sich (Mausrad oder ←/→ blättert, Esc schließt). Abschaltbar unter {ui('Einstellungen')} → {ui('Große Vorschau beim Darüberfahren')}.</div>
 <ol start='7'><li><b>Erstellen:</b> {ui('Paket erstellen')} (<span class='t'>Alt+P</span>) – ohne Zwischenfenster. Ohne Zielordner
 öffnet sich die Ordnerauswahl.</li></ol>
 {bild('13_paket_erstellt.png', 'Paket erstellt: Ergebnis und Hinweise unten in der Statuszeile.', 470)}
