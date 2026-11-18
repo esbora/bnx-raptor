@@ -88,17 +88,22 @@ def sicher_speichern(doc: pymupdf.Document, ziel: Path) -> Path:
     """
     ziel = Path(ziel)
     tmp = temp_neben(ziel)
+    # Schrift-Teilmengen nur in einer KOPIE bilden: auf dem geöffneten Arbeitsdokument würde subset_fonts()
+    # die Schriften verkleinern, und spätere Änderungen in derselben Sitzung bekämen eine falsche
+    # Zeichenzuordnung (Text sichtbar, aber nicht mehr korrekt durchsuchbar).
+    kopie = pymupdf.open("pdf", doc.tobytes())
     try:
-        doc.subset_fonts()            # eklenen yazı tiplerinden yalnızca kullanılan karakterler kalır
-    except Exception:  # noqa: BLE001 – alt küme oluşturulamazsa tam yazı tipiyle kaydet
-        pass
-    try:
-        doc.save(tmp, garbage=4, deflate=True, clean=True, incremental=False)
+        try:
+            kopie.subset_fonts()      # eklenen yazı tiplerinden yalnızca kullanılan karakterler kalır
+        except Exception:  # noqa: BLE001 – alt küme oluşturulamazsa tam yazı tipiyle kaydet
+            pass
+        kopie.save(tmp, garbage=4, deflate=True, clean=True, incremental=False)
         with pymupdf.open(tmp) as probe:
             if probe.page_count != doc.page_count:
                 raise PdfFehler("Die gespeicherte Datei ist unvollständig.")
         ersetzen(tmp, ziel)
     finally:
+        kopie.close()
         if tmp.exists():
             tmp.unlink()
     return ziel

@@ -247,3 +247,18 @@ def test_ohne_windows_schriften(monkeypatch):
     assert "Çağrı für Müller – İstanbul" in p.get_text() and "Ersatz" in erg.schrift
     pe.text_einfuegen(p, (72, 300), "Ğüşö")
     assert "Ğüşö" in p.get_text()
+
+
+def test_mehrfach_speichern_text_bleibt_durchsuchbar(tmp_path):
+    """Fund aus der EXE-Abnahme: nach dem 1. Speichern dürfen weitere Änderungen nicht unlesbar werden."""
+    quelle = _brief(tmp_path, "mehrfach.pdf", seiten=2)
+    s = PdfSitzung(quelle)
+    s.aendern("1", lambda d: pe.text_ersetzen(d[0], ALT, "Erste Änderung vor dem Speichern."))
+    s.speichern()
+    s.aendern("2", lambda d: pe.text_ersetzen(d[1], ALT, "Zweite Änderung nach dem Speichern."))
+    s.speichern()
+    s.aendern("3", lambda d: pe.text_ersetzen(d[0], "Erste Änderung vor dem Speichern.", "Dritte Änderung."))
+    s.speichern()
+    d = pymupdf.open(quelle)
+    assert d[1].search_for("Zweite Änderung nach dem Speichern.") and d[0].search_for("Dritte Änderung.")
+    assert "Zweite Änderung nach dem Speichern." in d[1].get_text()
