@@ -211,7 +211,7 @@ Outlook; BnX-Raptor prüft, dass die Anhänge genau den bestätigten Dateien ent
 
 <h2>6. Akten, Mandanten und Versicherungen</h2>
 <ul><li><b>{ui('Mandanten')}:</b> {ui('Neuer Mandant')} – Person oder Firma mit Anschrift, Telefon, E-Mail und Notiz.
-{ui('Neue Akte')} legt eine Akte für diesen Mandanten an; ein Mandant kann mehrere Akten haben. Jeder Mandant erhält automatisch eine feste <b>Mandats-Nr.</b> (M01, M02 …). Unter {ui('Akten / Mandate')} stehen Aktenzeichen, Versicherungsnummer, Schaden-Nr. und Versicherung jeder Akte; ein markiertes Feld anklicken (oder F2) ändert es direkt, Doppelklick öffnet die Akte. Die Suche findet auch M-Nr., Aktenzeichen, Versicherungs- und Schaden-Nr.</li>
+{ui('Neue Akte')} legt eine Akte für diesen Mandanten an; ein Mandant kann mehrere Akten haben. Jeder Mandant erhält automatisch eine feste <b>Mandats-Nr.</b> (M01, M02 …). Aktenzeichen, Versicherungsnummer und Schaden-Nr. tragen Sie direkt im Formular ein – ohne Akte wird beim Eintragen automatisch eine angelegt. Unter {ui('Akten / Mandate')} stehen Aktenzeichen, Versicherungsnummer, Schaden-Nr. und Versicherung jeder Akte; ein markiertes Feld anklicken (oder F2) ändert es direkt, Doppelklick öffnet die Akte. Die Suche findet auch M-Nr., Aktenzeichen, Versicherungs- und Schaden-Nr.</li>
 <li><b>{ui('Versicherungen')}:</b> Versicherer mit Anschrift, Kontakt, Notiz und mehreren E-Mail-Adressen. Die E-Mail-Adressen
 sind das bisherige Versicherer-Adressbuch – es gibt nur eine Stelle dafür.</li>
 <li><b>{ui('Akten')}:</b> {ui('Neue Akte')}; Felder Aktenzeichen, Mandant, Versicherung, Versicherungsnummer und Schaden-Nr.

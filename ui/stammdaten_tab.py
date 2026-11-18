@@ -6,7 +6,7 @@ eines Feldes – kein Speichern-Knopf. Versicherer-E-Mails sind das bestehende V
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFormLayout, QFrame, QHBoxLayout, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFormLayout, QFrame, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
                                QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout,
                                QWidget)
@@ -167,7 +167,43 @@ class MandantenTab(_StammSeite):
         art.addItem("Firma", "firma")
         art.currentIndexChanged.connect(lambda *_: self.speichern())
         self._feld("art", "Art", art)
-        super()._formular()
+        self.akte_felder: dict[str, QLineEdit] = {}
+        self.form.setVerticalSpacing(6)
+
+        def eingabe(key: str, text: str, akte: bool = False) -> QLineEdit:
+            w = QLineEdit()
+            w.setAccessibleName(text)
+            if akte:
+                w.setToolTip("Gehört zur markierten Akte unten. Hat der Mandant noch keine Akte, "
+                             "wird sie beim Eintragen automatisch angelegt.")
+                w.editingFinished.connect(lambda f=key: self._akte_feld_gesetzt(f))
+                self.akte_felder[key] = w
+            else:
+                w.editingFinished.connect(self.speichern)
+                self.felder[key] = w
+            return w
+
+        def zeile(links: QLineEdit, label2: str, rechts: QLineEdit, links_breite: int | None = None):
+            h = QHBoxLayout()
+            h.setSpacing(8)
+            if links_breite:
+                links.setFixedWidth(links_breite)
+            h.addWidget(links, 0 if links_breite else 1)
+            if label2:
+                h.addWidget(QLabel(label2))
+            h.addWidget(rechts, 1)
+            return h
+
+        self._feld("name", "Name / Firma *")
+        self._feld("strasse", "Straße, Nr.")
+        self.form.addRow("PLZ, Ort:", zeile(eingabe("plz", "PLZ"), "", eingabe("ort", "Ort"), 90))
+        self.form.addRow("Telefon:", zeile(eingabe("telefon", "Telefon"), "E-Mail:", eingabe("email", "E-Mail")))
+        self.form.addRow("Aktenzeichen:", eingabe("aktenzeichen", "Aktenzeichen", akte=True))
+        self.form.addRow("Versicherungsnr.:", zeile(eingabe("versicherungsnummer", "Versicherungsnummer", akte=True),
+                                                     "Schaden-Nr.:", eingabe("schaden_nr", "Schaden-Nr.", akte=True)))
+        notiz = _Notiz(self.speichern)
+        notiz.setFixedHeight(50)
+        self._feld("notiz", "Notiz", notiz)
 
     def _extra(self):
         self.rl.addSpacing(8)
@@ -194,10 +230,14 @@ class MandantenTab(_StammSeite):
         self.akten.itemDoubleClicked.connect(
             lambda it: self.akte_oeffnen(self.akten.item(it.row(), 0).data(Qt.UserRole)))
         self.akten.itemChanged.connect(self._akte_feld_geaendert)
+        self.akten.itemSelectionChanged.connect(self._akte_felder_fuellen)
+        self.akten.setMinimumHeight(90)
         self.rl.addWidget(self.akten, 1)
 
     def _aktiv(self, an: bool):
         super()._aktiv(an)
+        for w in getattr(self, "akte_felder", {}).values():
+            w.setEnabled(an)
         for b in ("b_akte", "b_ordner"):
             if hasattr(self, b):
                 getattr(self, b).setEnabled(an)
@@ -226,6 +266,10 @@ class MandantenTab(_StammSeite):
         self.l_nummer.setText((m.get("nummer") or "–") if m else "–")
         self._setzen(m or {})
         self.l_status.setText("")
+        self._akte_wahl = None
+        self._akten_tabelle(m)
+
+    def _akten_tabelle(self, m):
         self.akten.blockSignals(True)
         self.akten.setRowCount(0)
         if m:
@@ -242,6 +286,7 @@ class MandantenTab(_StammSeite):
                         it.setIcon(theme.icon("akten", "titel"))
                     self.akten.setItem(r, c, it)
         self.akten.blockSignals(False)
+        self._akte_markieren(getattr(self, "_akte_wahl", None))
 
     @staticmethod
     def _listentext(m: dict, akten: int = 0) -> str:
@@ -253,7 +298,67 @@ class MandantenTab(_StammSeite):
         if feld == "versicherung":
             return
         self.ctx.stammdaten.akte_setzen(it.data(Qt.UserRole), **{feld: it.text().strip()})
+        self._akte_felder_fuellen()
         self._gespeichert()
+
+    # --- Akten-Felder im Formular ------------------------------------------------
+    def _akte_ref(self) -> str | None:
+        r = self.akten.currentRow()
+        it = self.akten.item(r, 0) if r >= 0 else None
+        return it.data(Qt.UserRole) if it else None
+
+    def _akte_markieren(self, ref: str | None):
+        """Gewünschte Akte markieren (sonst die neueste) und ihre Werte in die Felder übernehmen."""
+        zeile = 0
+        for r in range(self.akten.rowCount()):
+            if self.akten.item(r, 0).data(Qt.UserRole) == ref:
+                zeile = r
+        if self.akten.rowCount():
+            self.akten.selectRow(zeile)
+            self.akten.setCurrentCell(zeile, 0)
+        self._akte_felder_fuellen()
+
+    def _akte_felder_fuellen(self):
+        ref = self._akte_ref()
+        a = self.ctx.stammdaten.akte(ref) if ref else None
+        for feld, w in self.akte_felder.items():
+            w.setText(str((a or {}).get(feld) or ""))
+
+    def _akte_feld_gesetzt(self, feld: str):
+        if self._laedt or not self.aktuell:
+            return
+        st = self.ctx.stammdaten
+        wert = self.akte_felder[feld].text().strip()
+        ref = self._akte_ref()
+        if ref:
+            if str((st.akte(ref) or {}).get(feld) or "") == wert:
+                return                                      # nichts geändert
+            st.akte_setzen(ref, **{feld: wert})
+        else:
+            if not wert:
+                return
+            # Noch keine Akte: aus den eingetragenen Nummern automatisch anlegen
+            werte = {f: w.text().strip() for f, w in self.akte_felder.items() if w.text().strip()}
+            m = st.mandant(self.aktuell) or {}
+            ref = werte.get("aktenzeichen") or werte.get("versicherungsnummer") or werte.get("schaden_nr")
+            if st.akte(ref) and st.akte(ref).get("mandant_id") not in (None, self.aktuell):
+                ref = f"{ref} ({m.get('nummer') or self.aktuell})"   # Nummer gehört schon zu anderem Mandanten
+            st.akte_anlegen(ref, mandant_id=self.aktuell, mandant_name=m.get("name", ""),
+                            mandant_email=m.get("email", ""), **werte)
+        self._akte_wahl = ref
+        self.anzeigen_akten()
+        self._gespeichert()
+
+    def anzeigen_akten(self):
+        """Nur die Akten-Tabelle neu füllen (Formular und Fokus bleiben)."""
+        m = self.ctx.stammdaten.mandant(self.aktuell) if self.aktuell else None
+        fokus = QApplication.focusWidget()
+        self._akten_tabelle(m)
+        if fokus is not None:
+            fokus.setFocus()
+        it = self.liste.currentItem()
+        if it and m:
+            it.setText(self._listentext(m, self.akten.rowCount()))
 
     def neu(self):
         name, ok = QInputDialog.getText(self, "Neuer Mandant", "Name oder Firmenname:")
