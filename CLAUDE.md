@@ -168,6 +168,10 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   Office ayarıyla kapatılabiliyor → kullanılmıyor), Akten klasörden ekleme/Verlauf düzenleme, Dokumentenarchiv,
   Mandanten/Versicherungen (e-postalar = Versicherer-Adressbuch). Arayüz: gereksiz tıklamalar azaltıldı (canlı önizleme,
   otomatik kayıt, onay pencereleri kaldırıldı).
+- [x] 2026-11-18 (devam): arayüz HER ZAMAN açık renk (kullanıcı isteği, koyu asla) – `theme.anwenden` HELL + Qt kendi
+  dosya pencereleri (AA_DontUseNativeDialogs) + qtbase_de çevirisi. Hata: `sicher_speichern` subset_fonts'u canlı belgede
+  çalıştırıyordu → aynı oturumdaki sonraki düzenlemeler aranamaz metin (EXE kabulünde bulundu) → artık kopyada.
+  Paketli EXE kabulü (UI Automation, scratchpad `uia/abnahme_exe.py`): akış 2/5/7/8/10 geçti (build ebaaf4c).
 - [ ] **Bekliyor:** Gerçek büro testi (`Pilot_0.4.0\BUEROTEST_CHECKLISTE.txt`), ikinci bilgisayar/SmartScreen, bağımsız PDF/A doğrulaması, yeni Outlook.
 - [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
