@@ -524,6 +524,10 @@ class _Handler(BaseHTTPRequestHandler):
                     doc = arch.dokument(arch.id_von(ziel)) if arch.id_von(ziel) else None
                     arch.erfassen(kopie, akte=(doc or {}).get("akte", "") or akte, rolle="bearbeitet", quelle=ziel,
                                   notiz=f"Konfliktkopie: {ziel.name} wurde gleichzeitig von jemand anderem geändert")
+                    ref = (doc or {}).get("akte", "") or akte
+                    if ref:                                   # im Verlauf der Akte sichtbar und zu öffnen
+                        d.journal.add("akte", str(kopie), "", "", ref, art="dokument",
+                                      meldung=f"Konfliktkopie von {ziel.name} (gleichzeitig gespeichert)")
                     return self._ok({"pfad": str(kopie), "konflikt": True, "sha": _sha(body)})
                 tmp = ziel.with_name(ziel.name + ".bnx-tmp")
                 tmp.write_bytes(body)
