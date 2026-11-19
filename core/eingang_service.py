@@ -13,6 +13,9 @@ def zielordner(ctx, referenz: str) -> Path | None:
     if not akte or not akte.get("ordner"):
         return None
     ordner = Path(akte["ordner"])
+    dateien = getattr(ctx, "dateien", None)
+    if dateien is not None and not dateien.direkt:        # Client: lokale Arbeitsablage, Upload beim Erfassen
+        ordner = dateien.akte_ordner(referenz, akte["ordner"])
     unter = ctx.cfg.get("eingang_unterordner", "")
     return ordner / unter if unter else ordner
 

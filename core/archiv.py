@@ -88,8 +88,13 @@ class Archiv:
             " sha256, notiz) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (akte, str(pfad), k, pfad.name, typ(pfad), rolle, quelle_id, jetzt,
              jetzt if rolle in ("bearbeitet", "umgewandelt") else "", _sha(pfad), notiz))
+        self._protokoll(akte, "dokument_hinzugefuegt", pfad.name)
         self.con.commit()
         return int(cur.lastrowid)
+
+    def _protokoll(self, akte: str, aktion: str, name: str) -> None:
+        from core.protokoll import Protokoll
+        Protokoll(self.con).eintragen("akte" if akte else "dokument", akte or "", aktion, [], name, commit=False)
 
     def id_von(self, pfad: Path) -> int | None:
         r = self.con.execute("SELECT id FROM dokumente WHERE schluessel = ?", (_schluessel(pfad),)).fetchone()
@@ -102,10 +107,14 @@ class Archiv:
             return
         self.con.execute("UPDATE dokumente SET bearbeitet = ?, sha256 = ? WHERE schluessel = ?",
                          (_jetzt(), _sha(pfad), _schluessel(pfad)))
+        r = self.con.execute("SELECT akte FROM dokumente WHERE schluessel = ?", (_schluessel(pfad),)).fetchone()
+        self._protokoll(r[0] if r else "", "dokument_gespeichert", Path(pfad).name)
         self.con.commit()
 
     def zuordnen(self, dok_id: int, akte: str) -> None:
         self.con.execute("UPDATE dokumente SET akte = ? WHERE id = ?", (akte, dok_id))
+        r = self.con.execute("SELECT name FROM dokumente WHERE id = ?", (dok_id,)).fetchone()
+        self._protokoll(akte, "dokument_zugeordnet", r[0] if r else "")
         self.con.commit()
 
     def dokument(self, dok_id: int) -> dict | None:

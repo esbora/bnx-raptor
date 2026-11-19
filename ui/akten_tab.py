@@ -26,6 +26,15 @@ from core.extractor import is_valid_email
 from core.journal import ARTEN
 from core.mail_service import MailDraft
 from core.fehlertexte import meldung
+from core.protokoll import Konflikt, gleich, meta_text
+
+try:
+    from core.netz import SitzungFehler, VerbindungFehler, WartungFehler
+    OFFLINE = (VerbindungFehler, WartungFehler, SitzungFehler)
+except ImportError:  # pragma: no cover
+    OFFLINE = ()
+AKTE_FELDER = ("aktenzeichen", "mandant_id", "versicherung_id", "versicherungsnummer", "schaden_nr", "mandant_email",
+               "versicherer_email", "notiz")
 
 from . import theme
 
@@ -153,7 +162,19 @@ class AktenTab(QWidget):
         rl = QVBoxLayout(rechts)
         rl.setContentsMargins(8, 0, 0, 0)
         self.titel = theme.ueberschrift("Keine Akte ausgewählt", "h2")
-        rl.addWidget(self.titel)
+        tkopf = QHBoxLayout()
+        tkopf.addWidget(self.titel, 1)
+        self.b_aenderungen = QPushButton("Änderungsverlauf…")
+        self.b_aenderungen.setToolTip("Wer hat wann was an dieser Akte geändert?")
+        self.b_aenderungen.clicked.connect(self.aenderungsverlauf_zeigen)
+        tkopf.addWidget(self.b_aenderungen)
+        rl.addLayout(tkopf)
+        self.l_meta = theme.rolle(QLabel(""), "gedimmt")
+        self.l_meta.setAccessibleName("Erstellt und geändert")
+        rl.addWidget(self.l_meta)
+        self._akte_basis: dict = {}
+        self._offen = False
+        self._nur_liste = False
         self.stamm = theme.karte(QFrame(), schatten=False)
         fl = QGridLayout(self.stamm)                 # zweispaltig: mehr Platz für den Verlauf
         fl.setContentsMargins(14, 8, 14, 8)
@@ -398,14 +419,54 @@ class AktenTab(QWidget):
             self.f_versicherer.showPopup()
         self.akte_speichern()
 
+    def aenderungsverlauf_zeigen(self):
+        ref = self.aktuelle_referenz()
+        if not ref or ref == OHNE_AKTE:
+            return
+        from PySide6.QtWidgets import QDialog, QVBoxLayout as _V
+        from .stammdaten_tab import _VerlaufTabelle
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Änderungsverlauf – Akte {ref}")
+        dlg.resize(720, 420)
+        lay = _V(dlg)
+        tab = _VerlaufTabelle()
+        tab.fuellen(self.ctx.aenderungsverlauf("akte", ref))
+        lay.addWidget(tab)
+        dlg.exec()
+
+    def _ungespeichert(self) -> dict:
+        return {k: v for k, v in self._formularwerte().items() if not gleich(self._akte_basis.get(k), v)}
+
+    def _formularwerte(self) -> dict:
+        vid = self.f_versicherung.currentData()
+        return dict(aktenzeichen=self.f_aktenzeichen.text().strip(), mandant_id=self.f_mandant.currentData(),
+                    versicherung_id=vid, versicherungsnummer=self.f_vnr.text().strip(),
+                    schaden_nr=self.f_snr.text().strip(), mandant_email=self.f_mandant_email.text().strip(),
+                    versicherer_email=self.f_versicherer.currentText().strip(), notiz=self.f_notiz.text().strip())
+
+    def von_aussen_aktualisieren(self):
+        """Änderungen anderer Benutzer: Liste neu; Formular nur ohne ungespeicherte Eingaben."""
+        if self._offen:
+            self.akte_speichern()
+        ref = self.aktuelle_referenz()
+        self._nur_liste = bool(ref and ref != OHNE_AKTE and (self._ungespeichert() or self._offen))
+        try:
+            self.laden()
+        finally:
+            self._nur_liste = False
+
     def akte_anzeigen(self):
+        if self._nur_liste:
+            return
         ref = self.aktuelle_referenz()
         ohne = ref == OHNE_AKTE
+        self.b_aenderungen.setVisible(not ohne)
         self.stamm.setVisible(not ohne)
         for b in (self.b_ordner, self.b_hinzu, self.b_mandant, self.b_vers):
             b.setVisible(not ohne)
         self.b_zuordnen.setVisible(ohne)
         if ohne:
+            self.l_meta.setText("")
             self.titel.setText("Dokumente ohne Akte")
             self.l_verlauf.setText("Bearbeitete Dokumente ohne Akte – markieren und „Akte zuordnen…“; "
                                    "Doppelklick öffnet zum Bearbeiten:")
@@ -426,6 +487,10 @@ class AktenTab(QWidget):
         self._kontakte_zeigen()
         self.f_notiz.setText(akte["notiz"])
         self.l_gespeichert.setText("Änderungen werden automatisch gespeichert.")
+        self.l_meta.setText(meta_text(akte))
+        self._akte_basis = {k: akte.get(k) for k in AKTE_FELDER}
+        self._akte_basis["versicherer_email"] = akte.get("versicherer_email") or ""
+        self._offen = False
         self._laedt = False
         rows = self.ctx.journal.verlauf(ref)
         self.verlauf.setRowCount(len(rows))
@@ -461,10 +526,14 @@ class AktenTab(QWidget):
     def vorschau_zeigen(self, r: int):
         pfad = self.verlauf.item(r, 0).data(Qt.UserRole) if r >= 0 and self.verlauf.item(r, 0) else ""
         self.vorschau.clear()
-        if not pfad or not Path(pfad).exists():
+        try:
+            lokal = self.ctx.dateien.lokal(pfad, self._akte_fuer_archiv()) if pfad else None
+        except OFFLINE:
+            lokal = None
+        if not lokal:
             self.vorschau.setText("Keine Vorschau" if pfad else "Eintrag wählen")
             return
-        p = Path(pfad)
+        p = Path(lokal)
         try:
             if p.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"):
                 from core import pdf_engine as pe
@@ -503,15 +572,50 @@ class AktenTab(QWidget):
         werte = dict(aktenzeichen=self.f_aktenzeichen.text().strip(), mandant_id=mid, versicherung_id=vid,
                      versicherungsnummer=self.f_vnr.text().strip(), schaden_nr=self.f_snr.text().strip(),
                      mandant_email=email, versicherer_email=v_email, notiz=self.f_notiz.text().strip())
-        if mid:
+        werte = {k: v for k, v in werte.items() if not gleich(self._akte_basis.get(k), v)}
+        if not werte:
+            self._offen = False
+            return
+        if "mandant_id" in werte and mid:
             werte["mandant_name"] = st.mandant(mid)["name"]
-        st.akte_setzen(ref, **werte)
+        if not self._akte_sicher(ref, werte):
+            return
         if isinstance(self.f_versicherung.currentData(), str) and vid:   # Adressbuch-Eintrag ist jetzt Datensatz
             self._laedt = True
             i = self.f_versicherung.currentIndex()
             self.f_versicherung.setItemData(i, vid)
             self._laedt = False
         theme.status_setzen(self.l_gespeichert, "ok", "Gespeichert")
+        self.l_meta.setText(meta_text(st.akte(ref)))
+
+    def _akte_sicher(self, ref: str, werte: dict, basis: dict | None = None) -> bool:
+        st = self.ctx.stammdaten
+        basis = basis if basis is not None else {k: self._akte_basis.get(k) for k in werte if k != "mandant_name"}
+        try:
+            st.akte_setzen(ref, _basis=basis, **werte)
+        except Konflikt as k:
+            from .netz_ui import KonfliktDialog
+            dlg = KonfliktDialog(self, k, werte)
+            dlg.exec()
+            if dlg.ergebnis == "meine":
+                return self._akte_sicher(ref, werte, {f: k.aktuell.get(f) for f in basis})
+            if dlg.ergebnis == "aktuell":
+                self.akte_anzeigen()
+                return False
+            theme.status_setzen(self.l_gespeichert, "warn", "Nicht gespeichert – gleichzeitige Änderung offen. Ihre "
+                                                            "Eingabe steht weiter im Formular.")
+            return False
+        except OFFLINE:
+            self._offen = True
+            theme.status_setzen(self.l_gespeichert, "fehler", "NICHT gespeichert – keine Verbindung zum Server. Ihre "
+                                "Eingabe bleibt im Formular und wird nach dem Wiederverbinden gespeichert.")
+            return False
+        except ValueError as e:
+            theme.status_setzen(self.l_gespeichert, "warn", meldung(e))
+            return False
+        self._akte_basis.update({k: v for k, v in werte.items() if k != "mandant_name"})
+        self._offen = False
+        return True
 
     def neue_akte(self):
         ref, ok = QInputDialog.getText(self, "Neue Akte", "Aktenzeichen oder Versicherungs-/Schaden-Nr.:")
@@ -522,8 +626,12 @@ class AktenTab(QWidget):
         self.f_aktenzeichen.setFocus()
 
     def ordner_oeffnen(self):
-        akte = self.ctx.journal.akte(self.aktuelle_referenz())
-        if akte and akte["ordner"]:
+        ref = self.aktuelle_referenz()
+        akte = self.ctx.journal.akte(ref)
+        if akte and not self.ctx.dateien.direkt:
+            from .netz_ui import akte_lokal
+            oeffnen(str(akte_lokal(self.ctx, ref)))
+        elif akte and akte["ordner"]:
             oeffnen(akte["ordner"])
         elif akte:
             QMessageBox.information(self, "Aktenordner", "Für diese Akte ist noch kein Ordner hinterlegt. Er wird "
@@ -580,13 +688,39 @@ class AktenTab(QWidget):
         danach werden derselbe Verlauf-Eintrag, das Archiv und die Vorschau aktualisiert."""
         it = self.verlauf.item(r, 0)
         pfad = it.data(Qt.UserRole) if it else ""
-        if not pfad or not Path(pfad).exists():
+        lokal = self.ctx.dateien.lokal(pfad, self._akte_fuer_archiv()) if pfad else None
+        if not lokal:
             QMessageBox.information(self, "Datei", "Die Datei ist nicht (mehr) vorhanden.")
             return
-        p = Path(pfad)
+        p = Path(lokal)
         if p.suffix.lower() not in BEARBEITBAR:
-            oeffnen(pfad)
+            oeffnen(str(p))
             return
+        if not self.ctx.darf("archiv", "bearbeitet"):
+            QMessageBox.information(self, "Nur ansehen", "Mit der Rolle „Sekretariat“ können Dokumente angesehen, "
+                                    "aber nicht geändert werden. Die Datei wird nur zum Ansehen geöffnet.")
+            oeffnen(str(p))
+            return
+        anderer = self.ctx.dateien.sperren(str(p), True)
+        if anderer:
+            if QMessageBox.question(
+                    self, "Wird gerade bearbeitet", f"„{p.name}“ wird gerade von {anderer} bearbeitet.\n\nTrotzdem "
+                    "öffnen? Speichern Sie danach, wird Ihre Fassung als eigene Kopie (Konfliktkopie) abgelegt – "
+                    "die Änderungen von " + anderer + " bleiben erhalten.",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+        try:
+            self._bearbeiten_datei(r, it, p)
+        except Konflikt as k:
+            QMessageBox.warning(self, "Gleichzeitig geändert", "Das Dokument wurde inzwischen von jemand anderem "
+                                "gespeichert. Ihre Fassung ist NICHT verloren – sie liegt als Konfliktkopie in der Akte "
+                                f"({Path(str(k.objekt)).name}).")
+            self.akte_anzeigen()
+        finally:
+            if not anderer:
+                self.ctx.dateien.sperren(str(p), False)
+
+    def _bearbeiten_datei(self, r: int, it, p: Path):
         from .main_window import im_hintergrund
         gespeichert = False
         if p.suffix.lower() == ".pdf":
@@ -601,7 +735,7 @@ class AktenTab(QWidget):
             from .dokument_editor import WordDialog
             quelle_id = (self.ctx.archiv.dokument(self.ctx.archiv.id_von(p)) or {}).get("quelle_id") \
                 if self.ctx.archiv.id_von(p) else None
-            original = Path(self.ctx.archiv.dokument(quelle_id)["pfad"]) if quelle_id else None
+            original = self.ctx.dateien.lokal(self.ctx.archiv.dokument(quelle_id)["pfad"]) if quelle_id else None
             dlg = WordDialog(self, p, lambda fn, frist: im_hintergrund(fn, frist),
                              float(self.ctx.cfg.get("word_zeitlimit_sekunden", 90)), original)
             dlg.exec()
@@ -639,6 +773,7 @@ class AktenTab(QWidget):
         dateien = []
         for r in sorted({i.row() for i in self.verlauf.selectedIndexes()}):
             p = self.verlauf.item(r, 0).data(Qt.UserRole)
+            p = self.ctx.dateien.lokal(p, ref) if p else None
             if p and Path(p).exists() and Path(p).suffix.lower() in (".pdf", ".msg", ".eml", ".docx",
                                                                      ".jpg", ".png", ".xlsx"):
                 dateien.append(Path(p))
@@ -679,6 +814,8 @@ class AktenTab(QWidget):
         ordner = zielordner(self.ctx, ref)
         if ordner:
             return ordner
+        if not self.ctx.dateien.direkt:                 # Client: lokale Ablage, Upload beim Erfassen
+            return self.ctx.dateien.akte_ordner(ref)
         wahl = QFileDialog.getExistingDirectory(self, f"Aktenordner für {ref} wählen")
         if not wahl:
             return None

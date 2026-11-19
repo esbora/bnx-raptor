@@ -42,7 +42,11 @@ DEFAULTS: dict = {
     "update_pruefen": True,
     "grosse_vorschau": True,          # 0.4.2: große Vorschau beim Darüberfahren (Einstellungen)
     "signatur_quelle": "outlook",     # "outlook" (Outlook imzası) | "programm" (Kanzleidaten'dan)
-    "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor; çok kullanıcı için ağ klasörü
+    "daten_ordner": "",               # boş = %APPDATA%\BnX-Raptor
+    # --- Mehrbenutzer (0.4.2) ---
+    "modus": "einzelplatz",           # "einzelplatz" | "server" | "client" (Mit Server verbinden)
+    "server_port": 47310,
+    "server_adresse": "",             # Client: z. B. http://192.168.1.20:47310
     "word_zeitlimit_sekunden": 90,    # gizli Word penceresi takılırsa işlem bu süre sonunda biter
     # --- PDF-Editor / Anlagen-Assistent (0.4) ---
     "anlagen_praefix": "Anlage K",    # Anlage K1, K2 … (Kläger); z. B. "Anlage B" für Beklagte
@@ -72,6 +76,18 @@ class ConfigFehler(Exception):
     """config.json okunamadı – programın başında Almanca mesajla gösterilir."""
 
 
+_CONFIG_PFAD: list[Path] = []
+
+
+def config_pfad_setzen(p: Path | None) -> None:
+    """Andere config.json verwenden (Start mit --config; z. B. zweiter Arbeitsplatz zum Testen)."""
+    _CONFIG_PFAD[:] = [Path(p)] if p else []
+
+
+def config_pfad() -> Path:
+    return _CONFIG_PFAD[0] if _CONFIG_PFAD else app_dir() / "config.json"
+
+
 def app_dir() -> Path:
     """exe olarak paketlendiğinde exe'nin klasörü, aksi halde proje klasörü."""
     if getattr(sys, "frozen", False):
@@ -94,7 +110,7 @@ def load_config() -> dict:
     Dosya yoksa ilk açılışta varsayılan değerlerle oluşturulur.
     """
     cfg = dict(DEFAULTS)
-    path = app_dir() / "config.json"
+    path = config_pfad()
     if path.exists():
         # utf-8-sig: Not Defteri'nin eklediği BOM'u da kabul eder
         with open(path, encoding="utf-8-sig") as f:
@@ -115,7 +131,7 @@ def load_config() -> dict:
 
 def einstellung_speichern(schluessel: str, wert) -> bool:
     """Einen Wert in config.json setzen (andere Einträge bleiben unverändert). False, wenn nicht schreibbar."""
-    path = app_dir() / "config.json"
+    path = config_pfad()
     try:
         daten = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else dict(DEFAULTS)
         daten[schluessel] = wert

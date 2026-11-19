@@ -13,14 +13,27 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QForm
 
 from core.extractor import is_valid_email
 from core.fehlertexte import meldung
+from core.protokoll import Konflikt, gleich, meta_text
+
+# Fehler, bei denen die Eingabe im Formular bleibt und später erneut gespeichert wird
+try:
+    from core.netz import SitzungFehler, VerbindungFehler, WartungFehler
+    OFFLINE = (VerbindungFehler, WartungFehler, SitzungFehler)
+except ImportError:  # pragma: no cover
+    OFFLINE = ()
 
 from . import theme
 
 
-def ordner_oeffnen(parent, ordner: list[tuple[str, str]], knopf, status_label):
-    """Ein Ordner → sofort öffnen; mehrere → kurze Auswahl (neueste zuerst, „Alle öffnen“)."""
+def ordner_oeffnen(parent, ordner: list[tuple[str, str]], knopf, status_label, ctx=None):
+    """Ein Ordner → sofort öffnen; mehrere → kurze Auswahl (neueste zuerst, „Alle öffnen“).
+    Client im Mehrbenutzerbetrieb: lokale Kopien der Akten-Dokumente."""
     import os
     from PySide6.QtWidgets import QMenu
+    if ctx is not None and not ctx.dateien.direkt:
+        from .netz_ui import akte_lokal
+        refs = list(dict.fromkeys(ref for _, ref in ordner))
+        ordner = [(str(akte_lokal(ctx, ref)), ref) for ref in refs]
     if not ordner:
         theme.status_setzen(status_label, None, "Noch keine gespeicherten Dokumente in den Akten.")
         return
@@ -33,6 +46,29 @@ def ordner_oeffnen(parent, ordner: list[tuple[str, str]], knopf, status_label):
     menu.addSeparator()
     menu.addAction(f"Alle {len(ordner)} Ordner öffnen", lambda: [os.startfile(p) for p, _ in ordner])
     menu.exec(knopf.mapToGlobal(knopf.rect().bottomLeft()))
+
+
+class _VerlaufTabelle(QTableWidget):
+    """„Änderungsverlauf“: Benutzer, Datum/Uhrzeit, Aktion und geänderte Felder."""
+
+    def __init__(self):
+        super().__init__(0, 3)
+        self.setHorizontalHeaderLabels(["Wann", "Wer", "Was"])
+        self.verticalHeader().setVisible(False)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.setAccessibleName("Änderungsverlauf")
+
+    def fuellen(self, eintraege: list[dict]):
+        self.setRowCount(len(eintraege))
+        for r, e in enumerate(eintraege):
+            wer = e["benutzer"] + (f" ({e['rolle_text']})" if e.get("rolle_text") and e["rolle_text"] not in
+                                   e["benutzer"] else "")
+            for c, text in enumerate((e["zeit_text"], wer, e["text"])):
+                self.setItem(r, c, QTableWidgetItem(text))
+        self.resizeColumnToContents(0)
+        self.resizeColumnToContents(1)
 
 
 class _Notiz(QPlainTextEdit):
@@ -82,6 +118,12 @@ class _StammSeite(QWidget):
         self.rl.setContentsMargins(18, 14, 18, 14)
         self.titel = theme.ueberschrift("–", "h2")
         self.rl.addWidget(self.titel)
+        self.l_meta = theme.rolle(QLabel(""), "gedimmt")
+        self.l_meta.setAccessibleName("Erstellt und geändert")
+        self.rl.addWidget(self.l_meta)
+        self._basis: dict = {}
+        self._offen = False
+        self._nur_liste = False
         self.form = QFormLayout()
         self.felder: dict[str, QWidget] = {}
         self._formular()
@@ -144,6 +186,81 @@ class _StammSeite(QWidget):
 
     def _gespeichert(self):
         theme.status_setzen(self.l_status, "ok", "Gespeichert")
+
+    # --- Mehrbenutzer: nur Geändertes speichern, Konflikte zeigen, Eingaben nie verlieren -------
+    def _ungespeichert(self) -> dict:
+        return {k: v for k, v in self._werte().items() if not gleich(self._basis.get(k), v)}
+
+    def _feld_setzen(self, k: str, v):
+        w = self.felder.get(k)
+        self._laedt = True
+        if isinstance(w, QLineEdit):
+            w.setText(str(v or ""))
+        elif isinstance(w, QPlainTextEdit):
+            w.setPlainText(str(v or ""))
+        elif isinstance(w, QComboBox):
+            w.setCurrentIndex(max(w.findData(v), 0))
+        self._laedt = False
+
+    def _sicher_speichern(self, fn) -> bool:
+        """fn(geaendert, basis). True = gespeichert (oder nichts zu tun)."""
+        geaendert = self._ungespeichert()
+        if not geaendert:
+            self._offen = False
+            return True
+        basis = {k: self._basis.get(k) for k in geaendert}
+        try:
+            fn(geaendert, basis)
+        except Konflikt as k:
+            return self._konflikt(k, geaendert, fn)
+        except OFFLINE as e:
+            self._offen = True
+            text = str(e) if not isinstance(e, OFFLINE[0]) else "keine Verbindung zum Server."
+            theme.status_setzen(self.l_status, "fehler", f"NICHT gespeichert – {text} Ihre Eingabe bleibt im "
+                                                         "Formular und wird nach dem Wiederverbinden gespeichert.")
+            self.l_status.setToolTip(str(e))
+            return False
+        except ValueError as e:
+            theme.status_setzen(self.l_status, "warn", meldung(e))
+            return False
+        except Exception as e:  # noqa: BLE001
+            from .netz_ui import ausnahme_behandeln
+            if ausnahme_behandeln(self, e):
+                theme.status_setzen(self.l_status, "warn", "Nicht gespeichert.")
+                return False
+            raise
+        self._basis.update(geaendert)
+        self._offen = False
+        return True
+
+    def _konflikt(self, k: Konflikt, geaendert: dict, fn) -> bool:
+        from .netz_ui import KonfliktDialog
+        dlg = KonfliktDialog(self, k, geaendert)
+        dlg.exec()
+        if dlg.ergebnis == "meine":
+            for f in geaendert:                      # bewusst überschreiben: Basis = aktueller Stand
+                self._basis[f] = k.aktuell.get(f)
+            return self._sicher_speichern(fn)
+        if dlg.ergebnis == "aktuell":
+            for f in k.felder:
+                self._feld_setzen(f, k.aktuell.get(f))
+                self._basis[f] = k.aktuell.get(f)
+            return self._sicher_speichern(fn)
+        self._offen = False
+        theme.status_setzen(self.l_status, "warn", "Nicht gespeichert – gleichzeitige Änderung offen. Ihre Eingabe "
+                                                   "steht weiter im Formular.")
+        return False
+
+    def von_aussen_aktualisieren(self):
+        """Andere Benutzer haben etwas geändert: Liste neu laden. Das Formular nur, wenn darin nichts
+        Ungespeichertes steht (sonst bleibt Ihre Eingabe unangetastet)."""
+        if self._offen:
+            self.speichern()
+        self._nur_liste = bool(self._ungespeichert()) or self._offen
+        try:
+            self.laden()
+        finally:
+            self._nur_liste = False
 
 
 class MandantenTab(_StammSeite):
@@ -222,7 +339,7 @@ class MandantenTab(_StammSeite):
         self.b_ordner = QPushButton(theme.icon("ordner", "titel", 16), "  Dokumentenordner öffnen")
         self.b_ordner.setToolTip("Öffnet den Ordner mit den bisherigen Dokumenten dieses Mandanten (aus den Akten)")
         self.b_ordner.clicked.connect(lambda: ordner_oeffnen(self, self.ctx.stammdaten.dokumentordner(
-            mandant_id=self.aktuell), self.b_ordner, self.l_status))
+            mandant_id=self.aktuell), self.b_ordner, self.l_status, self.ctx))
         kopf.addWidget(self.b_ordner)
         kopf.addWidget(self.b_akte)
         self.rl.addLayout(kopf)
@@ -240,7 +357,12 @@ class MandantenTab(_StammSeite):
         self.akten.itemChanged.connect(self._akte_feld_geaendert)
         self.akten.itemSelectionChanged.connect(self._akte_felder_fuellen)
         self.akten.setMinimumHeight(90)
-        self.rl.addWidget(self.akten, 1)
+        from PySide6.QtWidgets import QTabWidget
+        self.unten = QTabWidget()
+        self.unten.addTab(self.akten, "Akten / Mandate")
+        self.verlauf_tab = _VerlaufTabelle()
+        self.unten.addTab(self.verlauf_tab, "Änderungsverlauf")
+        self.rl.addWidget(self.unten, 1)
 
     def _aktiv(self, an: bool):
         super()._aktiv(an)
@@ -266,16 +388,23 @@ class MandantenTab(_StammSeite):
         self.anzeigen()
 
     def anzeigen(self):
+        if self._nur_liste:
+            return
         it = self.liste.currentItem()
+        neu_gewaehlt = (it.data(Qt.UserRole) if it else None) != self.aktuell
         self.aktuell = it.data(Qt.UserRole) if it else None
         m = self.ctx.stammdaten.mandant(self.aktuell) if self.aktuell else None
         self._aktiv(m is not None)
         self.titel.setText(m["name"] if m else "Kein Mandant ausgewählt")
         self.l_nummer.setText((m.get("nummer") or "–") if m else "–")
+        self._basis = dict(m or {})
         self._setzen(m or {})
-        self.l_status.setText("")
-        self._akte_wahl = None
+        self.l_meta.setText(meta_text(m))
+        if neu_gewaehlt:
+            self.l_status.setText("")
+        self._akte_wahl = None if neu_gewaehlt else self._akte_ref()
         self._akten_tabelle(m)
+        self.verlauf_tab.fuellen(self.ctx.aenderungsverlauf("mandant", m["id"]) if m else [])
 
     def _akten_tabelle(self, m):
         self.akten.blockSignals(True)
@@ -287,6 +416,7 @@ class MandantenTab(_StammSeite):
                 for c, (feld, _) in enumerate(self.AKTEN_SPALTEN):
                     it = QTableWidgetItem(str(a.get(feld) or ""))
                     it.setData(Qt.UserRole, a["referenz"])
+                    it.setData(Qt.UserRole + 1, str(a.get(feld) or ""))      # Basis für Konfliktprüfung
                     it.setToolTip(f"Akte {a['referenz']}")
                     if feld == "versicherung":                  # Versicherung wird in der Akte gewählt
                         it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -305,9 +435,35 @@ class MandantenTab(_StammSeite):
         feld = self.AKTEN_SPALTEN[it.column()][0]
         if feld == "versicherung":
             return
-        self.ctx.stammdaten.akte_setzen(it.data(Qt.UserRole), **{feld: it.text().strip()})
+        if not self._akte_sicher(it.data(Qt.UserRole), feld, it.text().strip(), it.data(Qt.UserRole + 1)):
+            return
+        self.akten.blockSignals(True)
+        it.setData(Qt.UserRole + 1, it.text().strip())
+        self.akten.blockSignals(False)
         self._akte_felder_fuellen()
         self._gespeichert()
+
+    def _akte_sicher(self, ref: str, feld: str, wert: str, basis) -> bool:
+        """Ein Akten-Feld speichern – mit Konfliktprüfung und ohne Datenverlust bei fehlender Verbindung."""
+        st = self.ctx.stammdaten
+        try:
+            st.akte_setzen(ref, _basis={feld: basis}, **{feld: wert})
+            return True
+        except Konflikt as k:
+            from .netz_ui import KonfliktDialog
+            dlg = KonfliktDialog(self, k, {feld: wert})
+            dlg.exec()
+            if dlg.ergebnis == "meine":
+                return self._akte_sicher(ref, feld, wert, k.aktuell.get(feld))
+            if dlg.ergebnis == "aktuell":
+                self.anzeigen_akten()
+                return False
+            theme.status_setzen(self.l_status, "warn", "Nicht gespeichert – gleichzeitige Änderung offen.")
+            return False
+        except OFFLINE as e:
+            theme.status_setzen(self.l_status, "fehler", "NICHT gespeichert – keine Verbindung zum Server. Ihre "
+                                                         f"Eingabe bleibt stehen. ({type(e).__name__})")
+            return False
 
     # --- Akten-Felder im Formular ------------------------------------------------
     def _akte_ref(self) -> str | None:
@@ -329,8 +485,12 @@ class MandantenTab(_StammSeite):
     def _akte_felder_fuellen(self):
         ref = self._akte_ref()
         a = self.ctx.stammdaten.akte(ref) if ref else None
+        self._akte_basis = dict(a or {})
         for feld, w in self.akte_felder.items():
+            if w.hasFocus() and w.isModified() and not gleich(w.text(), self._akte_basis.get(feld)):
+                continue                                    # gerade getippte Eingabe nicht überschreiben
             w.setText(str((a or {}).get(feld) or ""))
+            w.setModified(False)
 
     def _akte_feld_gesetzt(self, feld: str):
         if self._laedt or not self.aktuell:
@@ -339,9 +499,11 @@ class MandantenTab(_StammSeite):
         wert = self.akte_felder[feld].text().strip()
         ref = self._akte_ref()
         if ref:
-            if str((st.akte(ref) or {}).get(feld) or "") == wert:
+            basis = getattr(self, "_akte_basis", {}).get(feld)
+            if gleich(basis, wert):
                 return                                      # nichts geändert
-            st.akte_setzen(ref, **{feld: wert})
+            if not self._akte_sicher(ref, feld, wert, basis):
+                return
         else:
             if not wert:
                 return
@@ -385,16 +547,19 @@ class MandantenTab(_StammSeite):
             theme.status_setzen(self.l_status, "warn", f"„{w['email']}“ ist keine gültige E-Mail-Adresse – "
                                                        "nicht gespeichert.")
             return
-        try:
-            self.ctx.stammdaten.mandant_speichern(self.aktuell, **w)
-        except ValueError as e:
-            theme.status_setzen(self.l_status, "warn", meldung(e))
+        mid = self.aktuell
+        if not self._ungespeichert():
             return
-        self.titel.setText(w["name"])
+        if not self._sicher_speichern(lambda g, b: self.ctx.stammdaten.mandant_speichern(mid, _basis=b, **g)):
+            return
+        st = self.ctx.stammdaten
+        m = st.mandant(mid) or {}
+        self.titel.setText(m.get("name", w["name"]))
+        self.l_meta.setText(meta_text(m))
+        self.verlauf_tab.fuellen(self.ctx.aenderungsverlauf("mandant", mid))
         it = self.liste.currentItem()
         if it:
-            st = self.ctx.stammdaten
-            it.setText(self._listentext(st.mandant(self.aktuell) or {}, len(st.akten_von_mandant(self.aktuell))))
+            it.setText(self._listentext(m, len(st.akten_von_mandant(mid))))
         self._gespeichert()
 
     def _kontextmenue(self, pos):
@@ -479,7 +644,7 @@ class VersicherungenTab(_StammSeite):
         self.b_ordner = QPushButton(theme.icon("ordner", "titel", 16), "  Dokumentenordner öffnen")
         self.b_ordner.setToolTip("Öffnet den Ordner mit den bisherigen Dokumenten zu dieser Versicherung (aus den Akten)")
         self.b_ordner.clicked.connect(lambda: ordner_oeffnen(self, self.ctx.stammdaten.dokumentordner(
-            versicherung_id=self.aktuell), self.b_ordner, self.l_status) if self.aktuell else
+            versicherung_id=self.aktuell), self.b_ordner, self.l_status, self.ctx) if self.aktuell else
             theme.status_setzen(self.l_status, None, "Zu dieser Versicherung gibt es noch keine Akten."))
         akopf.addWidget(self.b_ordner)
         self.rl.addLayout(akopf)
@@ -526,8 +691,12 @@ class VersicherungenTab(_StammSeite):
         v = self._eintrag()
         self.aktuell = v["id"] if v else None
         self._aktiv(v is not None)
+        if self._nur_liste:
+            return
         self.titel.setText(v["name"] if v else "Keine Versicherung ausgewählt")
+        self._basis = dict(v or {})
         self._setzen(v or {})
+        self.l_meta.setText(meta_text(v) if v and v.get("id") is not None else "")
         self.l_status.setText("aus dem Versicherer-Adressbuch" if v and v["id"] is None else "")
         self.mails.clear()
         self.akten.clear()
@@ -557,13 +726,13 @@ class VersicherungenTab(_StammSeite):
             return
         vid = self._id_sicher()
         w = self._werte()
-        try:
-            self.ctx.stammdaten.versicherung_speichern(vid, **w)
-        except ValueError as e:
-            theme.status_setzen(self.l_status, "warn", meldung(e))
+        if not self._ungespeichert():
+            return
+        if not self._sicher_speichern(lambda g, b: self.ctx.stammdaten.versicherung_speichern(vid, _basis=b, **g)):
             return
         self._eintrag().update(w)
         self.titel.setText(w["name"])
+        self.l_meta.setText(meta_text(self.ctx.stammdaten.versicherung(vid)))
         self._gespeichert()
 
     def mail_hinzufuegen(self):

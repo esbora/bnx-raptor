@@ -222,6 +222,11 @@ class MainWindow(QMainWindow):
         menu = self.menuBar().addMenu("Einstellungen")
         menu.addAction("Kanzleidaten…", self.kanzleidaten_bearbeiten)
         menu.addAction("Versicherer-Adressbuch…", self.adressbuch_bearbeiten)
+        if ctx.mehrbenutzer:
+            menu.addSeparator()
+            menu.addAction("Passwort ändern…", self.passwort_aendern)
+            if ctx.rolle == "admin":
+                menu.addAction("Benutzer verwalten…", self.benutzer_verwalten)
         werkzeuge = self.menuBar().addMenu("Werkzeuge")
         werkzeuge.addAction("PDF bearbeiten…", self.pdf_bearbeiten)
         werkzeuge.addAction("Anlagenpaket erstellen", lambda: self.anlagen_oeffnen([]))
@@ -271,6 +276,8 @@ class MainWindow(QMainWindow):
         self.b_wiederherstellen.setToolTip("Stand aus einer Sicherung zurückholen (vorher wird automatisch eine "
                                            "Sicherheitskopie angelegt)")
         self.b_wiederherstellen.clicked.connect(self.sicherung_wiederherstellen)
+        for b in (self.b_sicherung, self.b_wiederherstellen):
+            b.setVisible(ctx.rolle == "admin")          # Sicherung/Wiederherstellung: nur Administrator
         self.mandanten_seite = self._seite("Mandanten", "Personen und Firmen – mit ihren Akten. Änderungen werden "
                                            "automatisch gespeichert.", self.mandanten_tab, rollen=True,
                                            knoepfe=[self.b_sicherung, self.b_wiederherstellen])
@@ -318,6 +325,12 @@ class MainWindow(QMainWindow):
         unter.setContentsMargins(14, 0, 0, 12)
         ll.addWidget(unter)
         ll.addWidget(self.nav, 1)
+        if ctx.mehrbenutzer:
+            from .netz_ui import Beobachter, StatusLeiste
+            self.beobachter = Beobachter(ctx.verbindung)
+            self.beobachter.neu.connect(self._von_aussen)
+            self.beobachter.neu_geladen.connect(self._nach_wiederherstellung)
+            ll.addWidget(StatusLeiste(self.beobachter))
         ver = QLabel(f"Version {__version__} · Pilot")
         ver.setObjectName("marke_klein")
         ver.setContentsMargins(14, 0, 0, 0)
@@ -364,6 +377,31 @@ class MainWindow(QMainWindow):
             self.nav.blockSignals(False)
 
     # --- Seiten (0.4.0: Start, PDF-Editor, Einstellungen) ---
+    # --- Mehrbenutzer ------------------------------------------------------------
+    def passwort_aendern(self):
+        from .netz_ui import eigenes_passwort
+        eigenes_passwort(self, self.ctx.verbindung)
+
+    def benutzer_verwalten(self):
+        from .netz_ui import BenutzerDialog
+        BenutzerDialog(self, self.ctx.verbindung).exec()
+
+    def _von_aussen(self, eintraege: list):
+        """Andere Benutzer haben etwas geändert → Listen aktualisieren, ungespeicherte Eingaben bleiben."""
+        for tab in (self.mandanten_tab, self.versicherungen_tab, self.akten_tab):
+            try:
+                tab.von_aussen_aktualisieren()
+            except Exception:  # noqa: BLE001 – keine Verbindung o. Ä.: beim nächsten Mal
+                pass
+        if eintraege:
+            letzter = eintraege[-1]
+            theme.status_setzen(self.status, None, f"Aktualisiert: {letzter.get('benutzer')} – {letzter.get('text')}")
+
+    def _nach_wiederherstellung(self):
+        self._von_aussen([])
+        QMessageBox.information(self, "Daten neu geladen", "Auf dem Server wurde eine Sicherung wiederhergestellt. "
+                                "Die Anzeige wurde neu geladen.")
+
     def sicherung_erstellen(self):
         from .sicherung_ui import sicherung_erstellen
         sicherung_erstellen(self, self.ctx)
@@ -503,6 +541,21 @@ class MainWindow(QMainWindow):
         self.cb_grosse_vorschau.setChecked(bool(self.cfg.get("grosse_vorschau", True)))
         self.cb_grosse_vorschau.toggled.connect(self._grosse_vorschau_setzen)
         lay.addWidget(self.cb_grosse_vorschau)
+        from .netz_ui import NetzEinstellungen
+        nkopf = QHBoxLayout()
+        nkopf.addWidget(theme.ueberschrift("Netzwerk (mehrere Arbeitsplätze)", "h2"), 1)
+        if self.ctx.mehrbenutzer:
+            b_pw = QPushButton("Passwort ändern…")
+            b_pw.clicked.connect(self.passwort_aendern)
+            nkopf.addWidget(b_pw)
+            if self.ctx.rolle == "admin":
+                b_ben = QPushButton("Benutzer verwalten…")
+                b_ben.clicked.connect(self.benutzer_verwalten)
+                nkopf.addWidget(b_ben)
+        lay.addLayout(nkopf)
+        from .sicherung_ui import neu_starten
+        self.netz_einstellungen = NetzEinstellungen(self.ctx, neu_starten)
+        lay.addWidget(self.netz_einstellungen)
         lay.addWidget(theme.ueberschrift("Verlauf", "h2"))
         lay.addWidget(self.verlauf_tab, 1)
         return self._seite("Einstellungen", "Kanzleidaten, Adressbuch, Programm und Verlauf.", inhalt)

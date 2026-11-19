@@ -13,6 +13,7 @@ import sqlite3
 from datetime import datetime
 
 from core.adressbuch import Adressbuch
+from core.protokoll import Konflikt, Protokoll, aktuell, geaendert, konflikte
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mandanten (
@@ -30,9 +31,13 @@ CREATE TABLE IF NOT EXISTS versicherungen (
     angelegt TEXT, geaendert TEXT);
 """
 AKTEN_SPALTEN = [("aktenzeichen", "TEXT DEFAULT ''"), ("mandant_id", "INTEGER"), ("versicherung_id", "INTEGER"),
-                 ("versicherungsnummer", "TEXT DEFAULT ''"), ("schaden_nr", "TEXT DEFAULT ''")]
-VERSICHERUNG_SPALTEN = [("standard_email", "TEXT DEFAULT ''")]        # 0.4.1: Standardadresse bei mehreren
-MANDANT_SPALTEN = [("nummer", "TEXT DEFAULT ''")]                     # 0.4.2: Mandats-Nr. M01, M02 … (fest)
+                 ("versicherungsnummer", "TEXT DEFAULT ''"), ("schaden_nr", "TEXT DEFAULT ''"),
+                 ("erstellt_von", "TEXT DEFAULT ''"), ("geaendert", "TEXT DEFAULT ''"),
+                 ("geaendert_von", "TEXT DEFAULT ''")]                 # 0.4.2: wer/wann
+VERSICHERUNG_SPALTEN = [("standard_email", "TEXT DEFAULT ''"),       # 0.4.1: Standardadresse bei mehreren
+                        ("erstellt_von", "TEXT DEFAULT ''"), ("geaendert_von", "TEXT DEFAULT ''")]
+MANDANT_SPALTEN = [("nummer", "TEXT DEFAULT ''"),                     # 0.4.2: Mandats-Nr. M01, M02 … (fest)
+                   ("erstellt_von", "TEXT DEFAULT ''"), ("geaendert_von", "TEXT DEFAULT ''")]
 MANDANT_FELDER = ("art", "name", "strasse", "plz", "ort", "telefon", "email", "notiz")
 VERSICHERUNG_FELDER = ("name", "strasse", "plz", "ort", "telefon", "notiz")
 
@@ -50,6 +55,7 @@ class Stammdaten:
     def __init__(self, con: sqlite3.Connection, adressbuch: Adressbuch):
         self.con, self.buch = con, adressbuch
         self.con.executescript(SCHEMA)
+        self.prot = Protokoll(con)
         vorhanden = {r[1] for r in self.con.execute("PRAGMA table_info(akten)")}
         for spalte, typ in AKTEN_SPALTEN:
             if vorhanden and spalte not in vorhanden:
@@ -96,27 +102,46 @@ class Stammdaten:
         r = _zeilen(self.con.execute("SELECT * FROM mandanten WHERE id = ?", (mid,)))
         return r[0] if r else None
 
-    def mandant_speichern(self, mid: int | None, **werte) -> int:
+    def mandant_speichern(self, mid: int | None, _basis: dict | None = None, **werte) -> int:
+        """Anlegen (mid None) oder ändern. Nur tatsächlich geänderte Felder werden geschrieben; mit `_basis`
+        (Stand beim Laden) wird ein gleichzeitiges Ändern desselben Feldes als `Konflikt` gemeldet."""
         werte = {k: str(v or "").strip() for k, v in werte.items() if k in MANDANT_FELDER}
         if not werte.get("name", "x"):
             raise ValueError("Bitte einen Namen oder Firmennamen eingeben.")
+        wer = aktuell().text
         if mid is None:
             werte.setdefault("art", "person")
             werte["nummer"] = self._naechste_nummer()
             cur = self.con.execute(
-                f"INSERT INTO mandanten ({', '.join(werte)}, angelegt, geaendert) VALUES "
-                f"({', '.join('?' * len(werte))}, ?, ?)", (*werte.values(), _jetzt(), _jetzt()))
+                f"INSERT INTO mandanten ({', '.join(werte)}, angelegt, geaendert, erstellt_von, geaendert_von) VALUES "
+                f"({', '.join('?' * len(werte))}, ?, ?, ?, ?)", (*werte.values(), _jetzt(), _jetzt(), wer, wer))
+            neu = int(cur.lastrowid)
+            self.prot.eintragen("mandant", neu, "erstellt", [k for k, v in werte.items() if v and k != "nummer"],
+                                werte.get("name", ""), commit=False)
             self.con.commit()
-            return int(cur.lastrowid)
-        self.con.execute(f"UPDATE mandanten SET {', '.join(f'{k} = ?' for k in werte)}, geaendert = ? WHERE id = ?",
-                         (*werte.values(), _jetzt(), mid))
+            return neu
+        alt = self.mandant(mid)
+        if alt is None:
+            raise ValueError("Dieser Mandant wurde inzwischen von einem anderen Benutzer gelöscht.")
+        k = konflikte(alt, werte, _basis)
+        if k:
+            raise Konflikt("mandant", mid, k, alt)
+        werte = geaendert(alt, werte)
+        if not werte:
+            return mid
+        self.con.execute(f"UPDATE mandanten SET {', '.join(f'{k} = ?' for k in werte)}, geaendert = ?, "
+                         f"geaendert_von = ? WHERE id = ?", (*werte.values(), _jetzt(), wer, mid))
+        self.prot.eintragen("mandant", mid, "geaendert", list(werte), werte.get("name") or alt["name"], commit=False)
         self.con.commit()
         return mid
 
     def mandant_loeschen(self, mid: int) -> None:
         """Akten bleiben erhalten (nur die Verknüpfung wird gelöst)."""
+        alt = self.mandant(mid) or {}
         self.con.execute("UPDATE akten SET mandant_id = NULL WHERE mandant_id = ?", (mid,))
         self.con.execute("DELETE FROM mandanten WHERE id = ?", (mid,))
+        self.prot.eintragen("mandant", mid, "geloescht", [],
+                            f"{alt.get('nummer', '')} {alt.get('name', '')}".strip(), commit=False)
         self.con.commit()
 
     # --- Versicherungen (E-Mails = Adressbuch) --------------------------------
@@ -150,9 +175,10 @@ class Stammdaten:
         r[0]["emails"] = [e for e, _ in self.buch.emails(r[0]["name"])]
         return r[0]
 
-    def versicherung_speichern(self, vid: int | None, **werte) -> int:
+    def versicherung_speichern(self, vid: int | None, _basis: dict | None = None, **werte) -> int:
         """Anlegen/ändern. Bei Umbenennung werden die Adressbuch-Einträge mit umbenannt."""
         werte = {k: str(v or "").strip() for k, v in werte.items() if k in VERSICHERUNG_FELDER}
+        wer = aktuell().text
         if "name" in werte and not werte["name"]:
             raise ValueError("Bitte den Namen der Versicherung eingeben.")
         if vid is None:
@@ -162,16 +188,30 @@ class Stammdaten:
                 vid = vorhanden["id"]
             else:
                 cur = self.con.execute(
-                    f"INSERT INTO versicherungen ({', '.join(werte)}, angelegt, geaendert) VALUES "
-                    f"({', '.join('?' * len(werte))}, ?, ?)", (*werte.values(), _jetzt(), _jetzt()))
+                    f"INSERT INTO versicherungen ({', '.join(werte)}, angelegt, geaendert, erstellt_von, geaendert_von)"
+                    f" VALUES ({', '.join('?' * len(werte))}, ?, ?, ?, ?)",
+                    (*werte.values(), _jetzt(), _jetzt(), wer, wer))
+                neu = int(cur.lastrowid)
+                self.prot.eintragen("versicherung", neu, "erstellt", [k for k, v in werte.items() if v],
+                                    werte.get("name", ""), commit=False)
                 self.con.commit()
-                return int(cur.lastrowid)
+                return neu
         alt = self.versicherung(vid)
+        if alt is None:
+            raise ValueError("Diese Versicherung wurde inzwischen von einem anderen Benutzer gelöscht.")
+        k = konflikte(alt, werte, _basis)
+        if k:
+            raise Konflikt("versicherung", vid, k, alt)
+        werte = geaendert(alt, werte)
+        if not werte:
+            return vid
         if alt and "name" in werte and werte["name"] != alt["name"]:
             for r in self.buch.treffer(alt["name"]):
                 self.con.execute("UPDATE versicherer SET name = ? WHERE id = ?", (werte["name"], r["id"]))
-        self.con.execute(f"UPDATE versicherungen SET {', '.join(f'{k} = ?' for k in werte)}, geaendert = ? "
-                         f"WHERE id = ?", (*werte.values(), _jetzt(), vid))
+        self.con.execute(f"UPDATE versicherungen SET {', '.join(f'{k} = ?' for k in werte)}, geaendert = ?, "
+                         f"geaendert_von = ? WHERE id = ?", (*werte.values(), _jetzt(), wer, vid))
+        self.prot.eintragen("versicherung", vid, "geaendert", list(werte), werte.get("name") or alt["name"],
+                            commit=False)
         self.con.commit()
         return vid
 
@@ -179,11 +219,13 @@ class Stammdaten:
         v = self.versicherung(vid)
         if v:
             self.buch.hinzufuegen(v["name"], email)
+            self.prot.eintragen("versicherung", vid, "email_hinzugefuegt", [], email)
 
     def standard_email_setzen(self, vid: int, email: str) -> None:
         """Standardadresse bei mehreren E-Mail-Adressen (leer = keine)."""
-        self.con.execute("UPDATE versicherungen SET standard_email = ?, geaendert = ? WHERE id = ?",
-                         (email.strip(), _jetzt(), vid))
+        self.con.execute("UPDATE versicherungen SET standard_email = ?, geaendert = ?, geaendert_von = ? "
+                         "WHERE id = ?", (email.strip(), _jetzt(), aktuell().text, vid))
+        self.prot.eintragen("versicherung", vid, "geaendert", ["standard_email"], commit=False)
         self.con.commit()
 
     def email_entfernen(self, vid: int, email: str) -> None:
@@ -195,25 +237,46 @@ class Stammdaten:
         for r in self.buch.treffer(v["name"]):
             if r["email"].lower() == email.lower():
                 self.buch.loeschen(r["id"])
+        self.prot.eintragen("versicherung", vid, "email_entfernt", [], email)
 
     # --- Akten -----------------------------------------------------------------
     def akte_anlegen(self, referenz: str, **werte) -> None:
         referenz = referenz.strip()
         if not referenz:
             raise ValueError("Bitte ein Aktenzeichen oder eine Versicherungsnummer eingeben.")
-        self.con.execute("INSERT OR IGNORE INTO akten (referenz, angelegt) VALUES (?, ?)", (referenz, _jetzt()))
+        wer = aktuell().text
+        cur = self.con.execute("INSERT OR IGNORE INTO akten (referenz, angelegt, erstellt_von, geaendert, "
+                               "geaendert_von) VALUES (?, ?, ?, ?, ?)", (referenz, _jetzt(), wer, _jetzt(), wer))
+        if cur.rowcount:
+            self.prot.eintragen("akte", referenz, "erstellt", [k for k, v in werte.items() if v], referenz,
+                                commit=False)
         self.con.commit()
-        self.akte_setzen(referenz, **werte)
+        self.akte_setzen(referenz, _protokoll=not cur.rowcount, **werte)
 
-    def akte_setzen(self, referenz: str, **werte) -> None:
+    def akte_setzen(self, referenz: str, _basis: dict | None = None, _protokoll: bool = True, **werte) -> None:
         erlaubt = {"aktenzeichen", "mandant_id", "versicherung_id", "versicherungsnummer", "schaden_nr",
                    "mandant_name", "mandant_email", "versicherer_email", "notiz", "ordner"}
         werte = {k: v for k, v in werte.items() if k in erlaubt}
         if not werte:
             return
-        self.con.execute(f"UPDATE akten SET {', '.join(f'{k} = ?' for k in werte)} WHERE referenz = ?",
-                         (*werte.values(), referenz))
+        alt = self.akte(referenz)
+        if alt is None:
+            raise ValueError("Diese Akte gibt es nicht (mehr).")
+        k = konflikte(alt, werte, _basis)
+        if k:
+            raise Konflikt("akte", referenz, k, alt)
+        werte = geaendert(alt, werte)
+        if not werte:
+            return
+        self.con.execute(f"UPDATE akten SET {', '.join(f'{k} = ?' for k in werte)}, geaendert = ?, geaendert_von = ?"
+                         f" WHERE referenz = ?", (*werte.values(), _jetzt(), aktuell().text, referenz))
+        if _protokoll:
+            self.prot.eintragen("akte", referenz, "geaendert", [k for k in werte if k != "mandant_name"], referenz,
+                                commit=False)
         self.con.commit()
+
+    def aenderungsverlauf(self, art: str, objekt) -> list[dict]:
+        return self.prot.fuer(art, objekt)
 
     def akte(self, referenz: str) -> dict | None:
         r = _zeilen(self.con.execute("SELECT * FROM akten WHERE referenz = ?", (referenz,)))

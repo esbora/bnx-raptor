@@ -11,11 +11,16 @@ from core.kanzlei import Kanzlei, KanzleiStore
 class AppContext:
     """İş akışlarının ortak eriştiği her şey: ayarlar, büro bilgileri, veritabanı."""
 
-    def __init__(self, cfg: dict, kanzlei_store: KanzleiStore, journal):
+    def __init__(self, cfg: dict, kanzlei_store: KanzleiStore, journal, verbindung=None, kopien=None):
         self.cfg = cfg
         self.kanzlei_store = kanzlei_store
         self.journal = journal
         self._adressbuch = None
+        # 0.4.2 Mehrbenutzer: verbindung = core.netz.Verbindung (Client/Server-Oberfläche), sonst Einzelplatz
+        self.verbindung = verbindung
+        from core import netz
+        self.dateien = netz.FernDateien(verbindung, kopien) if verbindung else netz.LokaleDateien()
+        self._kopien = kopien
         # Word işi bunun üzerinden çalışır. Arayüz bunu "arka planda, zaman sınırlı" bir
         # çağrıyla değiştirir; testlerde ve varsayılan olarak doğrudan çağrılır.
         # Not: SQLite (journal/adres defteri) sadece ana iş parçacığında kullanılabilir.
@@ -28,6 +33,9 @@ class AppContext:
     @property
     def adressbuch(self):
         """Versicherer-Adressbuch – Journal ile aynı SQLite dosyasında (ilk kullanımda açılır)."""
+        if self._adressbuch is None and self.verbindung is not None:
+            from core.netz import _Fern
+            self._adressbuch = _Fern(self.verbindung, "adressbuch")
         if self._adressbuch is None:
             from core.adressbuch import Adressbuch
             self._adressbuch = Adressbuch(self.journal.con,
@@ -37,6 +45,9 @@ class AppContext:
     @property
     def archiv(self):
         """Dokumentenarchiv (0.4.1) – gleiche SQLite-Datei wie Verlauf/Akten."""
+        if getattr(self, "_archiv", None) is None and self.verbindung is not None:
+            from core.netz import FernArchiv
+            self._archiv = FernArchiv(self.verbindung, self._kopien)
         if getattr(self, "_archiv", None) is None:
             from core.archiv import Archiv
             self._archiv = Archiv(self.journal.con)
@@ -45,6 +56,9 @@ class AppContext:
     @property
     def stammdaten(self):
         """Mandanten und Versicherungen (0.4.1); Versicherer-E-Mails bleiben im Adressbuch."""
+        if getattr(self, "_stammdaten", None) is None and self.verbindung is not None:
+            from core.netz import _Fern
+            self._stammdaten = _Fern(self.verbindung, "stammdaten")
         if getattr(self, "_stammdaten", None) is None:
             from core.stammdaten import Stammdaten
             self._stammdaten = Stammdaten(self.journal.con, self.adressbuch)
@@ -53,6 +67,25 @@ class AppContext:
     @property
     def kanzlei(self) -> Kanzlei:
         return self.kanzlei_store.laden()          # her seferinde güncel hali
+
+    @property
+    def mehrbenutzer(self) -> bool:
+        return self.verbindung is not None
+
+    @property
+    def rolle(self) -> str:
+        """admin | sekretariat | anwalt (Einzelplatz: admin)."""
+        return (self.verbindung.benutzer or {}).get("rolle", "admin") if self.verbindung else "admin"
+
+    def darf(self, objekt: str, methode: str) -> bool:
+        from core.benutzer import erlaubt
+        return erlaubt(self.rolle, objekt, methode)
+
+    def aenderungsverlauf(self, art: str, objekt) -> list[dict]:
+        if self.verbindung is not None:
+            return self.stammdaten.aenderungsverlauf(art, objekt)
+        from core.protokoll import Protokoll
+        return Protokoll(self.journal.con).fuer(art, objekt)
 
     def eigene_domains(self) -> list[str]:
         d = list(self.cfg.get("eigene_domains", []))

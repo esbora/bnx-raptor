@@ -56,8 +56,9 @@ def _benutzer() -> str:
 
 
 class Journal:
-    def __init__(self, db_path: Path):
-        self.con = sqlite3.connect(db_path)
+    def __init__(self, db_path: Path, threads: bool = False):
+        # threads=True: Server-Betrieb – Zugriffe aus mehreren Threads, serialisiert durch die Sperre des Dienstes
+        self.con = sqlite3.connect(db_path, check_same_thread=not threads, timeout=30)
         self.con.row_factory = sqlite3.Row
         self.con.executescript(SCHEMA)
         for tabelle, spalte, typ in MIGRATIONEN:
@@ -105,12 +106,26 @@ class Journal:
         """Dosyayı oluşturur/günceller. Boş değerler mevcut bilgiyi silmez."""
         if not referenz:
             return
-        self.con.execute("INSERT OR IGNORE INTO akten (referenz, angelegt) VALUES (?, ?)",
-                         (referenz, _jetzt()))
+        from core.protokoll import Protokoll, aktuell
+        cur = self.con.execute("INSERT OR IGNORE INTO akten (referenz, angelegt) VALUES (?, ?)",
+                               (referenz, _jetzt()))
+        neu = bool(cur.rowcount)
+        spalten = {r["name"] for r in self.con.execute("PRAGMA table_info(akten)")}
+        alt = dict(self.con.execute("SELECT * FROM akten WHERE referenz = ?", (referenz,)).fetchone())
+        felder = []
         for feld, wert in werte.items():
-            if feld in AKTEN_FELDER and wert:
+            if feld in AKTEN_FELDER and wert and str(alt.get(feld) or "") != str(wert):
                 self.con.execute(f"UPDATE akten SET {feld} = ? WHERE referenz = ?",
                                  (str(wert), referenz))
+                felder.append(feld)
+        if (neu or felder) and "geaendert_von" in spalten:
+            wer = aktuell().text
+            self.con.execute("UPDATE akten SET geaendert = ?, geaendert_von = ?" +
+                             (", erstellt_von = ?" if neu else "") + " WHERE referenz = ?",
+                             (_jetzt(), wer, wer, referenz) if neu else (_jetzt(), wer, referenz))
+        if neu or felder:
+            Protokoll(self.con).eintragen("akte", referenz, "erstellt" if neu else "geaendert", felder, referenz,
+                                          commit=False)
         self.con.commit()
 
     def akte(self, referenz: str) -> dict | None:

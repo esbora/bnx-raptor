@@ -1,0 +1,922 @@
+"""Mehrbenutzerbetrieb im Büronetz (0.4.2) – ohne zusätzliche Software, nur Python-Standardbibliothek.
+
+Ein Rechner läuft als „Server“: Nur dieser Prozess öffnet die SQLite-Datenbank und die Dokumentablage
+(kein gleichzeitiges Öffnen der Datenbankdatei über Netzwerkfreigaben oder OneDrive). Die anderen Rechner
+(„Mit Server verbinden“) – und die Oberfläche auf dem Server selbst – arbeiten über einen kleinen HTTP-Dienst:
+
+- Anmeldung per Challenge-Response (PBKDF2 + HMAC) – das Passwort wird nie übertragen.
+- Jede Anfrage ist mit einem Sitzungsschlüssel signiert und fortlaufend nummeriert (keine Übernahme fremder
+  Sitzungen, keine Wiederholung). Rechte werden auf dem Server bei jeder Anfrage geprüft.
+- Dokumente liegen zentral; Clients arbeiten mit lokalen Arbeitskopien und schreiben Änderungen mit
+  Versionsprüfung zurück (gleichzeitige Bearbeitung → Konfliktkopie, nichts geht verloren).
+- „Änderungen seit …“ für die automatische Aktualisierung; Wartungsmodus während einer Wiederherstellung.
+
+Hinweis: Die Verbindung ist signiert, aber nicht verschlüsselt – nur im vertrauenswürdigen Büronetz verwenden.
+"""
+from __future__ import annotations
+
+import base64
+import contextlib
+import dataclasses
+import hashlib
+import hmac
+import json
+import logging
+import os
+import re
+import secrets
+import shutil
+import socket
+import sqlite3
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+from core import benutzer as bn
+from core import protokoll as pr
+
+LOG = logging.getLogger(__name__)
+STANDARD_PORT = 47310
+SITZUNG_GUELTIG = 12 * 3600
+SPERRE_GUELTIG = 4 * 3600
+DOKUMENTE = "Dokumente"
+
+# Methoden, die über das Netz aufgerufen werden dürfen (alles andere – z. B. `con` – ist gesperrt)
+LESEN = {
+    "journal": {"recent", "verlauf", "bereits_importiert", "akte", "akten", "referenzen"},
+    "stammdaten": {"mandanten", "mandant", "versicherungen", "versicherung", "akte", "akten_von_mandant",
+                   "akten_von_versicherung", "dokumentordner", "aenderungsverlauf"},
+    "archiv": {"id_von", "dokument", "liste", "abgeleitet", "arbeitskopie"},
+    "adressbuch": {"alle", "treffer", "emails"},
+    "kanzlei": {"laden", "logo_pfad"},
+    "benutzer": {"liste"},
+}
+SCHREIBEN = {
+    "journal": {"add", "bearbeitet_setzen", "akte_speichern"},
+    "stammdaten": {"mandant_speichern", "mandant_loeschen", "versicherung_speichern", "email_hinzufuegen",
+                   "standard_email_setzen", "email_entfernen", "akte_anlegen", "akte_setzen"},
+    "archiv": {"erfassen", "bearbeitet", "zuordnen"},
+    "adressbuch": {"lernen", "hinzufuegen", "aendern", "loeschen"},
+    "kanzlei": {"speichern", "logo_hochladen"},
+    "benutzer": {"anlegen", "passwort_setzen", "rolle_setzen", "aktiv_setzen", "anzeigename_setzen",
+                 "eigenes_passwort"},
+}
+
+
+class VerbindungFehler(Exception):
+    pass
+
+
+class SitzungFehler(VerbindungFehler):
+    pass
+
+
+class WartungFehler(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------- JSON mit Pfaden/Dataclasses
+def _kodieren(o):
+    if isinstance(o, Path):
+        return {"__pfad__": str(o)}
+    if isinstance(o, sqlite3.Row):
+        return dict(o)
+    if dataclasses.is_dataclass(o) and not isinstance(o, type):
+        return {"__klasse__": type(o).__name__, "werte": dataclasses.asdict(o)}
+    if isinstance(o, (set, tuple)):
+        return list(o)
+    if isinstance(o, bytes):
+        return {"__bytes__": base64.b64encode(o).decode()}
+    raise TypeError(f"nicht übertragbar: {type(o).__name__}")
+
+
+def _dekodieren(d: dict):
+    if "__pfad__" in d and len(d) == 1:
+        return Path(d["__pfad__"])
+    if "__bytes__" in d and len(d) == 1:
+        return base64.b64decode(d["__bytes__"])
+    if "__klasse__" in d:
+        if d["__klasse__"] == "Kanzlei":
+            from core.kanzlei import Kanzlei
+            felder = {f.name for f in dataclasses.fields(Kanzlei)}
+            return Kanzlei(**{k: v for k, v in d["werte"].items() if k in felder})
+        return d["werte"]
+    return d
+
+
+def dumps(o) -> bytes:
+    return json.dumps(o, default=_kodieren, ensure_ascii=False).encode("utf-8")
+
+
+def loads(b: bytes):
+    return json.loads(b.decode("utf-8"), object_hook=_dekodieren)
+
+
+def _sha(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def _sha_datei(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def _nc(p) -> str:
+    return os.path.normcase(os.path.normpath(str(p)))
+
+
+def _sicherer_name(s: str) -> str:
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", s or "").strip(" .")
+    return s[:120] or "_"
+
+
+def lokale_adressen(port: int) -> list[str]:
+    """Adressen, unter denen andere Rechner diesen Server erreichen."""
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))          # kein Paket wird gesendet – nur Routing-Auswahl
+            ips.add(s.getsockname()[0])
+    except OSError:
+        pass
+    ips = sorted(i for i in ips if not i.startswith("127."))
+    name = socket.gethostname()
+    return [f"http://{i}:{port}" for i in ips] + [f"http://{name}:{port}"]
+
+
+def _signatur(schluessel: bytes, pfad: str, zaehler: int, meta: str, body: bytes) -> str:
+    return hmac.new(schluessel, f"{pfad}|{zaehler}|{meta}|{_sha(body)}".encode(), hashlib.sha256).hexdigest()
+
+
+# =========================================================================== SERVER
+class Dienst:
+    """Der zentrale Dienst. Hält die einzige Datenbankverbindung (serialisiert über eine Sperre)."""
+
+    def __init__(self, daten_ordner: Path, app_ordner: Path | None = None, port: int = STANDARD_PORT,
+                 host: str = "0.0.0.0", cfg: dict | None = None, version: str = ""):
+        from core.adressbuch import Adressbuch
+        from core.archiv import Archiv
+        from core.journal import Journal
+        from core.kanzlei import KanzleiStore
+        from core.stammdaten import Stammdaten
+        self.daten = Path(daten_ordner)
+        self.app_ordner = app_ordner
+        self.version = version
+        self.lock = threading.RLock()
+        self.db = self.daten / "verlauf.sqlite"
+        self.journal = Journal(self.db, threads=True)
+        con = self.journal.con
+        self.buch = Adressbuch(con, (cfg or {}).get("versicherer_abkuerzungen", {}))
+        self.objekte = {"journal": self.journal, "stammdaten": Stammdaten(con, self.buch), "archiv": Archiv(con),
+                        "adressbuch": self.buch, "kanzlei": _ServerKanzlei(KanzleiStore(self.daten)),
+                        "benutzer": bn.Benutzerverwaltung(con)}
+        self.prot = pr.Protokoll(con)
+        self.sitzungen: dict[str, dict] = {}
+        self.nonces: dict[str, tuple[str, float]] = {}
+        self.sperren: dict[str, tuple[str, float]] = {}
+        self.wiederherstellungen: dict[str, Path] = {}
+        self.generation = 1
+        self.wartung = ""
+        (self.daten / DOKUMENTE).mkdir(parents=True, exist_ok=True)
+        dienst = self
+
+        class Handler(_Handler):
+            pass
+        Handler.dienst = dienst
+        self.http = ThreadingHTTPServer((host, port), Handler)
+        self.http.daemon_threads = True
+        self.port = self.http.server_address[1]
+        self._thread: threading.Thread | None = None
+
+    # --- Start/Stopp -------------------------------------------------------------
+    def starten(self) -> "Dienst":
+        self._thread = threading.Thread(target=self.http.serve_forever, name="BnX-Server", daemon=True)
+        self._thread.start()
+        return self
+
+    def beenden(self) -> None:
+        with contextlib.suppress(Exception):
+            self.http.shutdown()
+            self.http.server_close()
+        with contextlib.suppress(Exception):
+            self.journal.con.close()
+
+    @property
+    def benutzerverwaltung(self) -> bn.Benutzerverwaltung:
+        return self.objekte["benutzer"]
+
+    # --- Hilfen ------------------------------------------------------------------
+    def _freigegeben(self, pfad: str) -> bool:
+        """Nur Dateien, auf die die Datenbank verweist (oder die in der Ablage liegen), werden ausgeliefert."""
+        k = _nc(pfad)
+        if k.startswith(_nc(self.daten / DOKUMENTE) + os.sep):
+            return True
+        con = self.journal.con
+        for tab, sp in (("dokumente", "pfad"), ("vorgaenge", "dokument"), ("vorgaenge", "ergebnis")):
+            with contextlib.suppress(sqlite3.Error):
+                for (v,) in con.execute(f"SELECT [{sp}] FROM [{tab}] WHERE [{sp}] LIKE ?", (f"%{Path(pfad).name}",)):
+                    if v and _nc(v) == k:
+                        return True
+        with contextlib.suppress(sqlite3.Error):
+            for (o,) in con.execute("SELECT ordner FROM akten WHERE COALESCE(ordner, '') != ''"):
+                if k.startswith(_nc(o) + os.sep):
+                    return True
+        logo = self.objekte["kanzlei"].store.logo_pfad(self.objekte["kanzlei"].store.laden())
+        return bool(logo and _nc(logo) == k)
+
+    def ablage_ordner(self, akte: str) -> Path:
+        o = self.daten / DOKUMENTE / (_sicherer_name(akte) if akte else "_ohne_Akte")
+        o.mkdir(parents=True, exist_ok=True)
+        return o
+
+    def _frei(self, p: Path) -> Path:
+        i = 2
+        basis = p
+        while p.exists():
+            p = basis.with_name(f"{basis.stem} ({i}){basis.suffix}")
+            i += 1
+        return p
+
+
+class _ServerKanzlei:
+    """Kanzleidaten auf dem Server (Logo wird als Datei hochgeladen)."""
+
+    def __init__(self, store):
+        self.store = store
+
+    def laden(self):
+        return self.store.laden()
+
+    def speichern(self, k):
+        self.store.speichern(k)
+
+    def logo_pfad(self, k):
+        return self.store.logo_pfad(k)
+
+    def logo_hochladen(self, name: str, daten: bytes) -> str:
+        tmp = Path(tempfile.mkdtemp(prefix="bnx-logo-")) / _sicherer_name(name)
+        try:
+            tmp.write_bytes(daten)
+            return self.store.logo_uebernehmen(tmp)
+        finally:
+            shutil.rmtree(tmp.parent, ignore_errors=True)
+
+
+class _Handler(BaseHTTPRequestHandler):
+    dienst: Dienst
+    protocol_version = "HTTP/1.1"
+    server_version = "BnX-Raptor"
+
+    def log_message(self, *a):                           # keine Zugriffsprotokolle (keine Inhalte im Log)
+        pass
+
+    # --- Antworten -----------------------------------------------------------------
+    def _senden(self, status: int, body: bytes, typ: str = "application/json", kopf: dict | None = None):
+        self.send_response(status)
+        self.send_header("Content-Type", typ)
+        self.send_header("Content-Length", str(len(body)))
+        for k, v in (kopf or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _ok(self, wert=None, kopf=None):
+        self._senden(200, dumps({"ok": True, "wert": wert}), kopf=kopf)
+
+    def _fehler(self, art: str, text: str, daten=None, status: int = 200):
+        self._senden(status, dumps({"ok": False, "fehler": {"art": art, "text": text, "daten": daten}}))
+
+    # --- Eingang -------------------------------------------------------------------
+    def do_POST(self):  # noqa: C901
+        d = self.dienst
+        try:
+            laenge = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(laenge) if laenge else b""
+            meta_roh = self.headers.get("X-Meta", "")
+            meta = json.loads(base64.urlsafe_b64decode(meta_roh.encode()).decode()) if meta_roh else {}
+            pfad = self.path
+            if pfad == "/ping":
+                with d.lock:
+                    leer = d.benutzerverwaltung.anzahl() == 0
+                return self._ok({"app": "BnX-Raptor", "version": d.version, "benutzer_vorhanden": not leer,
+                                 "rechner": socket.gethostname()})
+            if pfad == "/anmelden/start":
+                name = str(meta.get("name", ""))
+                with d.lock:
+                    salz, it = d.benutzerverwaltung.anmeldedaten(name)
+                nonce = secrets.token_hex(16)
+                d.nonces[name.lower()] = (nonce, time.time())
+                return self._ok({"salz": salz, "iterationen": it, "nonce": nonce})
+            if pfad == "/anmelden/ende":
+                name = str(meta.get("name", ""))
+                nonce, t = d.nonces.pop(name.lower(), ("", 0))
+                if not nonce or time.time() - t > 120 or nonce != meta.get("nonce"):
+                    return self._fehler("anmeldung", "Anmeldung abgelaufen – bitte erneut versuchen.")
+                with d.lock:
+                    erg = d.benutzerverwaltung.verifizieren(name, nonce, str(meta.get("beweis", "")))
+                if not erg:
+                    time.sleep(0.6)
+                    return self._fehler("anmeldung", "Benutzername oder Passwort falsch – oder das Konto ist "
+                                                     "deaktiviert.")
+                b, k = erg
+                sid = secrets.token_hex(16)
+                d.sitzungen[sid] = {"b": b, "k": bn.sitzungsschluessel(k, nonce), "z": 0, "t": time.time()}
+                return self._ok({"sitzung": sid, "benutzer": b})
+            if pfad == "/erster_admin":
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    return self._fehler("berechtigung", "Der erste Administrator kann nur am Server angelegt werden.")
+                with d.lock:
+                    if d.benutzerverwaltung.anzahl():
+                        return self._fehler("wert", "Es gibt bereits Benutzer.")
+                    tok = pr.setzen(pr.Benutzer(meta.get("name", ""), "admin", meta.get("anzeigename", "")))
+                    try:
+                        d.benutzerverwaltung.anlegen(meta.get("name", ""), meta.get("passwort", ""), "admin",
+                                                     meta.get("anzeigename", ""))
+                    except ValueError as e:
+                        return self._fehler("wert", str(e))
+                    finally:
+                        pr.zuruecksetzen(tok)
+                return self._ok(True)
+            # ---- ab hier: signierte Anfragen ----
+            sitz = self._sitzung(pfad, meta_roh, body)
+            if sitz is None:
+                return
+            b = sitz["b"]
+            tok = pr.setzen(pr.Benutzer(b["name"], b["rolle"], b.get("anzeigename") or ""))
+            try:
+                return self._signiert(pfad, meta, body, b)
+            finally:
+                pr.zuruecksetzen(tok)
+        except (ConnectionError, BrokenPipeError):
+            return
+        except Exception as e:  # noqa: BLE001
+            LOG.exception("Serverfehler")
+            with contextlib.suppress(Exception):
+                self._fehler("intern", f"Interner Fehler auf dem Server: {type(e).__name__}")
+
+    def _sitzung(self, pfad: str, meta_roh: str, body: bytes) -> dict | None:
+        d = self.dienst
+        sid = self.headers.get("X-Sitzung", "")
+        s = d.sitzungen.get(sid)
+        if not s or time.time() - s["t"] > SITZUNG_GUELTIG:
+            d.sitzungen.pop(sid, None)
+            self._fehler("sitzung", "Die Anmeldung ist abgelaufen – bitte erneut anmelden.", status=401)
+            return None
+        try:
+            z = int(self.headers.get("X-Zaehler", "0"))
+        except ValueError:
+            z = 0
+        sig = _signatur(s["k"], pfad, z, meta_roh, body)
+        if z <= s["z"] or not hmac.compare_digest(sig, self.headers.get("X-Signatur", "")):
+            self._fehler("sitzung", "Ungültige Anfrage – bitte erneut anmelden.", status=401)
+            return None
+        with d.lock:
+            aktiv = d.benutzerverwaltung.ist_aktiv(s["b"]["id"])
+        if not aktiv:
+            d.sitzungen.pop(sid, None)
+            self._fehler("sitzung", "Ihr Konto wurde deaktiviert.", status=401)
+            return None
+        s["b"]["rolle"] = aktiv["rolle"]                 # Rollenänderung gilt sofort
+        s["z"], s["t"] = z, time.time()
+        return s
+
+    def _signiert(self, pfad: str, meta: dict, body: bytes, b: dict):  # noqa: C901
+        d = self.dienst
+        rolle = b["rolle"]
+        if pfad == "/aenderungen":
+            with d.lock:
+                eintraege = d.prot.seit(int(meta.get("seit", 0)))
+                letzte = d.prot.letzte_id()
+            return self._ok({"eintraege": eintraege, "letzte_id": letzte, "generation": d.generation,
+                             "wartung": d.wartung})
+        if pfad == "/abmelden":
+            d.sitzungen.pop(self.headers.get("X-Sitzung", ""), None)
+            return self._ok(True)
+        if d.wartung and pfad not in ("/sicherung/status",):
+            return self._fehler("wartung", d.wartung)
+        if pfad == "/rpc":
+            anfrage = loads(body) if body else {}
+            objekt, methode = anfrage.get("objekt", ""), anfrage.get("methode", "")
+            schreibt = methode in SCHREIBEN.get(objekt, set())
+            if not (schreibt or methode in LESEN.get(objekt, set())):
+                return self._fehler("berechtigung", f"Unbekannte Funktion {objekt}.{methode}.")
+            # Lesen ist für alle Rollen erlaubt, Benutzerliste nur für Administratoren
+            if schreibt or objekt == "benutzer":
+                try:
+                    bn.pruefen_recht(rolle, objekt, methode)
+                except bn.Berechtigung as e:
+                    return self._fehler("berechtigung", str(e))
+            args, kwargs = anfrage.get("args", []), anfrage.get("kwargs", {})
+            try:
+                with d.lock:
+                    wert = getattr(d.objekte[objekt], methode)(*args, **kwargs)
+            except pr.Konflikt as e:
+                return self._fehler("konflikt", str(e), e.als_dict())
+            except bn.Berechtigung as e:
+                return self._fehler("berechtigung", str(e))
+            except ValueError as e:
+                return self._fehler("wert", str(e))
+            return self._ok(wert)
+        if pfad == "/datei/holen":
+            p = str(meta.get("pfad", ""))
+            with d.lock:
+                ok = d._freigegeben(p)
+            if not ok or not Path(p).is_file():
+                return self._fehler("datei", f"Die Datei „{Path(p).name}“ ist auf dem Server nicht vorhanden.")
+            daten = Path(p).read_bytes()
+            return self._senden(200, daten, "application/octet-stream", {"X-Sha": _sha(daten)})
+        if pfad == "/datei/senden":
+            return self._datei_senden(meta, body, b)
+        if pfad == "/datei/sperren":
+            return self._sperren(meta, b)
+        if pfad.startswith("/sicherung/"):
+            try:
+                bn.pruefen_recht(rolle, "sicherung", pfad.rsplit("/", 1)[-1])
+            except bn.Berechtigung as e:
+                return self._fehler("berechtigung", str(e))
+            return self._sicherung(pfad, meta, body)
+        return self._fehler("intern", "Unbekannte Anfrage.")
+
+    # --- Dateien ---------------------------------------------------------------------
+    def _datei_senden(self, meta: dict, body: bytes, b: dict):
+        d = self.dienst
+        name = _sicherer_name(str(meta.get("name", "Datei")))
+        akte = str(meta.get("akte", "") or "")
+        ersetzt = str(meta.get("ersetzt", "") or "")
+        with d.lock:
+            if ersetzt:
+                try:
+                    bn.pruefen_recht(b["rolle"], "datei", "ersetzen")
+                except bn.Berechtigung as e:
+                    return self._fehler("berechtigung", str(e))
+                ziel = Path(ersetzt)
+                if not d._freigegeben(ersetzt):
+                    return self._fehler("datei", "Diese Datei ist auf dem Server nicht bekannt.")
+                aktuell = _sha_datei(ziel) if ziel.is_file() else ""
+                if aktuell and aktuell == _sha(body):
+                    return self._ok({"pfad": str(ziel), "konflikt": False, "sha": aktuell})
+                if aktuell and aktuell != meta.get("basis_sha"):
+                    # Gleichzeitig von jemand anderem gespeichert → nichts überschreiben: Konfliktkopie
+                    stempel = datetime.now().strftime("%Y-%m-%d_%H-%M")
+                    kopie = d._frei(ziel.with_name(f"{ziel.stem}_Konflikt_{_sicherer_name(b['name'])}_{stempel}"
+                                                   f"{ziel.suffix}"))
+                    kopie.write_bytes(body)
+                    arch = d.objekte["archiv"]
+                    doc = arch.dokument(arch.id_von(ziel)) if arch.id_von(ziel) else None
+                    arch.erfassen(kopie, akte=(doc or {}).get("akte", "") or akte, rolle="bearbeitet", quelle=ziel,
+                                  notiz=f"Konfliktkopie: {ziel.name} wurde gleichzeitig von jemand anderem geändert")
+                    return self._ok({"pfad": str(kopie), "konflikt": True, "sha": _sha(body)})
+                tmp = ziel.with_name(ziel.name + ".bnx-tmp")
+                tmp.write_bytes(body)
+                os.replace(tmp, ziel)
+                d.objekte["archiv"].bearbeitet(ziel)
+                return self._ok({"pfad": str(ziel), "konflikt": False, "sha": _sha(body)})
+            ordner = d.ablage_ordner(akte)
+            ziel = ordner / name
+            if ziel.exists() and _sha_datei(ziel) != _sha(body):
+                ziel = d._frei(ziel)
+            if not ziel.exists():
+                ziel.write_bytes(body)
+            if akte:
+                a = d.journal.akte(akte)
+                if a is not None and not a.get("ordner"):
+                    d.journal.akte_speichern(akte, ordner=str(ordner))
+        return self._ok({"pfad": str(ziel), "konflikt": False, "sha": _sha(body)})
+
+    def _sperren(self, meta: dict, b: dict):
+        d = self.dienst
+        k = _nc(meta.get("pfad", ""))
+        jetzt = time.time()
+        for p, (_, t) in list(d.sperren.items()):
+            if jetzt - t > SPERRE_GUELTIG:
+                d.sperren.pop(p, None)
+        wer = b.get("anzeigename") or b["name"]
+        if meta.get("an"):
+            anderer = d.sperren.get(k)
+            if anderer and anderer[0] != wer:
+                return self._ok({"von": anderer[0]})
+            d.sperren[k] = (wer, jetzt)
+            return self._ok({"von": ""})
+        if d.sperren.get(k, ("",))[0] == wer:
+            d.sperren.pop(k, None)
+        return self._ok({"von": ""})
+
+    # --- Sicherung ---------------------------------------------------------------------
+    def _sicherung(self, pfad: str, meta: dict, body: bytes):
+        from core import sicherung as s
+        d = self.dienst
+        if pfad == "/sicherung/erstellen":
+            try:
+                paket = s.paket_erstellen(d.db, d.daten, d.app_ordner, d.version)
+            except s.SicherungFehler as e:
+                return self._fehler("sicherung", str(e))
+            try:
+                daten = paket.zip_pfad.read_bytes()
+                info = {"name": paket.zip_pfad.name, "anzahl": paket.manifest["anzahl"],
+                        "dateien": sum(1 for e in paket.manifest["dateien"] if e.get("art") == "datei"),
+                        "fehlend": paket.fehlend[:300]}
+            finally:
+                s.verwerfen(paket)
+            d.prot.eintragen("sicherung", "", "erstellt_sicherung", [], info["name"])
+            kopf = {"X-Info": base64.urlsafe_b64encode(dumps(info)).decode(), "X-Sha": _sha(daten)}
+            return self._senden(200, daten, "application/octet-stream", kopf)
+        if pfad == "/sicherung/pruefen":
+            tmp = Path(tempfile.mkdtemp(prefix="bnx-hochgeladen-")) / "sicherung.zip"
+            tmp.write_bytes(body)
+            try:
+                info = s.pruefen(tmp, d.version)
+            except s.SicherungFehler as e:
+                shutil.rmtree(tmp.parent, ignore_errors=True)
+                return self._fehler("sicherung", str(e))
+            token = secrets.token_hex(12)
+            d.wiederherstellungen[token] = tmp
+            with d.lock:
+                con = d.journal.con
+                aktuell = s._zaehlen(con)
+            return self._ok({"token": token, "erstellt": info.erstellt, "programm_version": info.programm_version,
+                             "anzahl": info.anzahl, "aktuell": aktuell, "dateien": info.dateien,
+                             "sicherheitskopien": str(d.daten / s.SICHERHEITSKOPIEN)})
+        if pfad == "/sicherung/wiederherstellen":
+            tmp = d.wiederherstellungen.pop(str(meta.get("token", "")), None)
+            if not tmp or not tmp.exists():
+                return self._fehler("sicherung", "Die hochgeladene Sicherung ist nicht mehr vorhanden – bitte "
+                                                 "erneut auswählen.")
+            d.wartung = ("Auf dem Server wird gerade eine Sicherung wiederhergestellt – bitte kurz warten. Ihre "
+                         "Eingaben bleiben erhalten.")
+            try:
+                time.sleep(0.3)                        # laufende Anfragen beenden lassen
+                with d.lock:
+                    erg = s.wiederherstellen(tmp, d.db, d.daten, d.app_ordner, d.version)
+                    d.prot.eintragen("sicherung", "", "wiederhergestellt", [], tmp.name)
+                d.generation += 1
+                return self._ok({"sicherheitskopie": str(erg.sicherheitskopie), "dateien": erg.dateien,
+                                 "umgezogen": erg.umgezogen})
+            except s.SicherungFehler as e:
+                return self._fehler("sicherung", str(e))
+            finally:
+                d.wartung = ""
+                shutil.rmtree(tmp.parent, ignore_errors=True)
+        return self._fehler("intern", "Unbekannte Anfrage.")
+
+
+# =========================================================================== CLIENT
+class Verbindung:
+    def __init__(self, adresse: str, timeout: float = 15.0):
+        a = (adresse or "").strip().rstrip("/")
+        if a and not re.match(r"^https?://", a):
+            a = "http://" + a
+        if a and not re.search(r":\d+$", a.split("//", 1)[-1]):
+            a += f":{STANDARD_PORT}"
+        self.adresse = a
+        self.timeout = timeout
+        self.sitzung = ""
+        self.schluessel = b""
+        self.zaehler = 0
+        self.benutzer: dict | None = None
+        self._lock = threading.Lock()
+        self._anmeldung: tuple[str, str] | None = None
+
+    @property
+    def lokal(self) -> bool:
+        host = self.adresse.split("//", 1)[-1].rsplit(":", 1)[0]
+        return host in ("127.0.0.1", "localhost", "::1") or host.lower() == socket.gethostname().lower()
+
+    def _http(self, pfad: str, meta: dict | None, body: bytes, signiert: bool, timeout: float | None = None):
+        meta_roh = base64.urlsafe_b64encode(dumps(meta or {})).decode() if meta else ""
+        kopf = {"Content-Type": "application/octet-stream"}
+        if meta_roh:
+            kopf["X-Meta"] = meta_roh
+        with self._lock:
+            if signiert:
+                if not self.sitzung:
+                    raise SitzungFehler("Nicht angemeldet.")
+                self.zaehler += 1
+                kopf.update({"X-Sitzung": self.sitzung, "X-Zaehler": str(self.zaehler),
+                             "X-Signatur": _signatur(self.schluessel, pfad, self.zaehler, meta_roh, body)})
+            req = urllib.request.Request(self.adresse + pfad, data=body, headers=kopf, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
+                    return r.read(), dict(r.headers)
+            except urllib.error.HTTPError as e:
+                return e.read(), dict(e.headers)
+            except (urllib.error.URLError, OSError, TimeoutError) as e:
+                raise VerbindungFehler(
+                    f"Keine Verbindung zum Server ({self.adresse}). Ist der Server-Rechner eingeschaltet und "
+                    "BnX-Raptor dort gestartet? Ihre Eingaben bleiben erhalten – es wurde nichts gespeichert.") from e
+
+    def _json(self, pfad: str, meta: dict | None = None, body: bytes = b"", signiert: bool = True,
+              timeout: float | None = None):
+        daten, kopf = self._http(pfad, meta, body, signiert, timeout)
+        if "json" not in (kopf.get("Content-Type") or ""):
+            return daten, kopf
+        antwort = loads(daten)
+        if antwort.get("ok"):
+            return antwort.get("wert"), kopf
+        f = antwort.get("fehler") or {}
+        art, text = f.get("art"), f.get("text") or "Fehler auf dem Server."
+        if art == "sitzung":
+            self.sitzung = ""
+            if self._anmeldung and pfad not in ("/anmelden/start", "/anmelden/ende"):
+                self.anmelden(*self._anmeldung)        # automatisch neu anmelden (z. B. nach Server-Neustart)
+                return self._json(pfad, meta, body, signiert, timeout)
+            raise SitzungFehler(text)
+        if art == "konflikt":
+            dd = f.get("daten") or {}
+            raise pr.Konflikt(dd.get("art", ""), dd.get("objekt"), dd.get("felder", []), dd.get("aktuell", {}))
+        if art == "berechtigung":
+            raise bn.Berechtigung(text)
+        if art == "wartung":
+            raise WartungFehler(text)
+        if art == "sicherung":
+            from core.sicherung import SicherungFehler
+            raise SicherungFehler(text)
+        raise ValueError(text)
+
+    # --- öffentlich -----------------------------------------------------------------
+    def ping(self) -> dict:
+        return self._json("/ping", signiert=False, timeout=5)[0]
+
+    def anmelden(self, name: str, passwort: str) -> dict:
+        start, _ = self._json("/anmelden/start", {"name": name}, signiert=False)
+        k = bn.ableiten(passwort, start["salz"], int(start["iterationen"]))
+        erg, _ = self._json("/anmelden/ende", {"name": name, "nonce": start["nonce"],
+                                               "beweis": bn.beweis(k, start["nonce"])}, signiert=False)
+        self.sitzung = erg["sitzung"]
+        self.schluessel = bn.sitzungsschluessel(k, start["nonce"])
+        self.zaehler = 0
+        self.benutzer = erg["benutzer"]
+        self._anmeldung = (name, passwort)
+        return self.benutzer
+
+    def erster_admin(self, name: str, passwort: str, anzeigename: str = "") -> None:
+        self._json("/erster_admin", {"name": name, "passwort": passwort, "anzeigename": anzeigename},
+                   signiert=False)
+
+    def abmelden(self) -> None:
+        with contextlib.suppress(Exception):
+            self._json("/abmelden")
+        self.sitzung = ""
+        self._anmeldung = None
+
+    def aufrufen(self, objekt: str, methode: str, args=(), kwargs=None):
+        return self._json("/rpc", body=dumps({"objekt": objekt, "methode": methode, "args": list(args),
+                                              "kwargs": kwargs or {}}))[0]
+
+    def aenderungen(self, seit: int) -> dict:
+        return self._json("/aenderungen", {"seit": seit}, timeout=8)[0]
+
+    def datei_holen(self, pfad: str) -> tuple[bytes, str]:
+        daten, kopf = self._json("/datei/holen", {"pfad": str(pfad)}, timeout=120)
+        return daten, kopf.get("X-Sha") or _sha(daten)
+
+    def datei_senden(self, daten: bytes, name: str, akte: str = "", ersetzt: str = "", basis_sha: str = "") -> dict:
+        return self._json("/datei/senden", {"name": name, "akte": akte, "ersetzt": ersetzt, "basis_sha": basis_sha},
+                          daten, timeout=300)[0]
+
+    def sperren(self, pfad: str, an: bool = True) -> str:
+        return (self._json("/datei/sperren", {"pfad": str(pfad), "an": an})[0] or {}).get("von", "")
+
+    def sicherung_erstellen(self) -> tuple[bytes, dict]:
+        daten, kopf = self._json("/sicherung/erstellen", timeout=3600)
+        if isinstance(daten, (bytes, bytearray)):
+            info = loads(base64.urlsafe_b64decode(kopf.get("X-Info", "").encode())) if kopf.get("X-Info") else {}
+            if kopf.get("X-Sha") and kopf["X-Sha"] != _sha(daten):
+                from core.sicherung import SicherungFehler
+                raise SicherungFehler("Die Sicherung wurde bei der Übertragung beschädigt – bitte erneut versuchen.")
+            return bytes(daten), info
+        raise ValueError("Unerwartete Antwort des Servers.")
+
+    def sicherung_pruefen(self, zip_daten: bytes) -> dict:
+        return self._json("/sicherung/pruefen", body=zip_daten, timeout=3600)[0]
+
+    def sicherung_wiederherstellen(self, token: str) -> dict:
+        return self._json("/sicherung/wiederherstellen", {"token": token}, timeout=3600)[0]
+
+
+# --------------------------------------------------------------------------- Client-Objekte (Proxys)
+class _Fern:
+    def __init__(self, v: Verbindung, objekt: str):
+        self._v, self._objekt = v, objekt
+
+    def __getattr__(self, methode: str):
+        if methode.startswith("_"):
+            raise AttributeError(methode)
+        return lambda *a, **k: self._v.aufrufen(self._objekt, methode, a, k)
+
+
+class Arbeitskopien:
+    """Lokale Arbeitskopien der zentralen Dokumente. Merkt sich Server-Pfad und Prüfsumme beim Herunterladen,
+    damit Änderungen mit Versionsprüfung zurückgeschrieben werden (nie stilles Überschreiben)."""
+
+    def __init__(self, v: Verbindung, ordner: Path):
+        self.v = v
+        self.ordner = Path(ordner)
+        self.ordner.mkdir(parents=True, exist_ok=True)
+        self.index_datei = self.ordner / "index.json"
+        try:
+            self.index: dict[str, dict] = json.loads(self.index_datei.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.index = {}
+        self.direkt = v.lokal                            # Server-Rechner: Dateien liegen hier
+
+    def _speichern(self):
+        tmp = self.index_datei.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.index, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self.index_datei)
+
+    def _eintrag_lokal(self, lokal: Path) -> dict | None:
+        return self.index.get(_nc(lokal))
+
+    def akte_ordner(self, ref: str) -> Path:
+        o = self.ordner / (_sicherer_name(ref) if ref else "_ohne_Akte")
+        o.mkdir(parents=True, exist_ok=True)
+        return o
+
+    def lokal(self, server_pfad: str, ref: str = "") -> Path | None:
+        """Datei zum Ansehen/Bearbeiten. Lokale, noch nicht zurückgeschriebene Änderungen werden NIE
+        durch den Server-Stand ersetzt."""
+        if not server_pfad:
+            return None
+        if self.direkt and Path(server_pfad).is_file():
+            return Path(server_pfad)
+        for k, e in self.index.items():
+            if _nc(e["server"]) == _nc(server_pfad) and Path(e["lokal"]).is_file():
+                lok = Path(e["lokal"])
+                if _sha_datei(lok) != e["sha"]:
+                    return lok                           # lokale Änderung noch nicht hochgeladen → behalten
+                try:
+                    daten, sha = self.v.datei_holen(server_pfad)
+                except ValueError:
+                    return lok
+                if sha != e["sha"]:
+                    lok.write_bytes(daten)
+                    e["sha"] = sha
+                    self._speichern()
+                return lok
+        try:
+            daten, sha = self.v.datei_holen(server_pfad)
+        except ValueError:
+            return None
+        ziel = self.akte_ordner(ref) / Path(server_pfad).name
+        i = 2
+        while ziel.exists() and _nc(ziel) in self.index:
+            ziel = ziel.with_name(f"{Path(server_pfad).stem} ({i}){Path(server_pfad).suffix}")
+            i += 1
+        ziel.write_bytes(daten)
+        self.index[_nc(ziel)] = {"lokal": str(ziel), "server": str(server_pfad), "sha": sha}
+        self._speichern()
+        return ziel
+
+    def server_pfad(self, lokal, akte: str = "") -> str:
+        """Lokale Datei → Pfad auf dem Server (lädt neue Dateien hoch, schreibt geänderte Arbeitskopien zurück)."""
+        if not lokal:
+            return lokal
+        p = Path(lokal)
+        e = self._eintrag_lokal(p)
+        if e:
+            if p.is_file() and _sha_datei(p) != e["sha"]:
+                return self.zurueckschreiben(p)[0]
+            return e["server"]
+        if self.direkt and p.exists():
+            return str(p)
+        if not p.is_file():
+            return str(lokal)
+        erg = self.v.datei_senden(p.read_bytes(), p.name, akte)
+        self.index[_nc(p)] = {"lokal": str(p), "server": erg["pfad"], "sha": erg["sha"]}
+        self._speichern()
+        return erg["pfad"]
+
+    def zurueckschreiben(self, lokal: Path) -> tuple[str, bool]:
+        """Geänderte Arbeitskopie hochladen. → (Server-Pfad, Konflikt?)"""
+        p = Path(lokal)
+        e = self._eintrag_lokal(p)
+        if not e:
+            return self.server_pfad(p), False
+        erg = self.v.datei_senden(p.read_bytes(), p.name, ersetzt=e["server"], basis_sha=e["sha"])
+        if erg.get("konflikt"):
+            # Eigene Fassung liegt jetzt als Konfliktkopie auf dem Server; Arbeitskopie zeigt künftig darauf
+            e["server"] = erg["pfad"]
+        e["sha"] = erg["sha"]
+        self._speichern()
+        return erg["pfad"], bool(erg.get("konflikt"))
+
+
+class FernArchiv(_Fern):
+    def __init__(self, v, kopien: Arbeitskopien):
+        super().__init__(v, "archiv")
+        self._k = kopien
+
+    def erfassen(self, pfad, akte: str = "", rolle: str = "original", quelle=None, notiz: str = ""):
+        sp = self._k.server_pfad(pfad, akte)
+        q = self._k.server_pfad(quelle, akte) if quelle else None
+        return self._v.aufrufen("archiv", "erfassen", [sp], {"akte": akte, "rolle": rolle, "quelle": q,
+                                                              "notiz": notiz})
+
+    def bearbeitet(self, pfad):
+        e = self._k._eintrag_lokal(Path(pfad))
+        if e:
+            sp, konflikt = self._k.zurueckschreiben(Path(pfad))
+            if konflikt:
+                raise pr.Konflikt("dokument", sp, ["Datei"], {
+                    "geaendert_von": "einem anderen Benutzer"}) from None
+            return None
+        return self._v.aufrufen("archiv", "bearbeitet", [str(pfad)])
+
+    def id_von(self, pfad):
+        e = self._k._eintrag_lokal(Path(pfad)) if pfad else None
+        return self._v.aufrufen("archiv", "id_von", [e["server"] if e else str(pfad)])
+
+    def arbeitskopie(self, quelle):
+        e = self._k._eintrag_lokal(Path(quelle))
+        sp = self._v.aufrufen("archiv", "arbeitskopie", [e["server"] if e else str(quelle)])
+        return self._k.lokal(str(sp)) if sp else None
+
+
+class FernJournal(_Fern):
+    def __init__(self, v, kopien: Arbeitskopien):
+        super().__init__(v, "journal")
+        self._k = kopien
+
+    def add(self, workflow, dokument, ergebnis="", empfaenger="", referenz="", status="ok", meldung="",
+            art="ausgang", quelle_id=""):
+        dok = self._k.server_pfad(dokument, referenz) if dokument and Path(str(dokument)).is_file() else dokument
+        erg = self._k.server_pfad(ergebnis, referenz) if ergebnis and Path(str(ergebnis)).is_file() else ergebnis
+        return self._v.aufrufen("journal", "add", [workflow, str(dok or ""), str(erg or "")],
+                                {"empfaenger": empfaenger, "referenz": referenz, "status": status,
+                                 "meldung": meldung, "art": art, "quelle_id": quelle_id})
+
+    def akte_speichern(self, referenz, **werte):
+        o = werte.get("ordner")
+        if o and not self._k.direkt:
+            werte.pop("ordner")                          # lokale Ordner gelten nicht für die anderen Rechner
+        return self._v.aufrufen("journal", "akte_speichern", [referenz], werte)
+
+
+class FernKanzlei:
+    """Kanzleidaten vom Server (Logo als lokale Kopie)."""
+
+    def __init__(self, v: Verbindung, kopien: Arbeitskopien):
+        self._v, self._k = v, kopien
+        self.ordner = kopien.ordner
+
+    def laden(self):
+        return self._v.aufrufen("kanzlei", "laden")
+
+    def speichern(self, k):
+        return self._v.aufrufen("kanzlei", "speichern", [k])
+
+    def logo_uebernehmen(self, quelle) -> str:
+        p = Path(quelle)
+        return self._v.aufrufen("kanzlei", "logo_hochladen", [p.name, p.read_bytes()])
+
+    def logo_pfad(self, k):
+        sp = self._v.aufrufen("kanzlei", "logo_pfad", [k])
+        return self._k.lokal(str(sp)) if sp else None
+
+
+class LokaleDateien:
+    """Einzelplatz: Dateien liegen direkt auf diesem Rechner."""
+    direkt = True
+
+    def lokal(self, pfad: str, ref: str = "") -> Path | None:
+        return Path(pfad) if pfad and Path(pfad).exists() else None
+
+    def akte_ordner(self, ref: str, ordner: str = "") -> Path | None:
+        return Path(ordner) if ordner else None
+
+    def sperren(self, pfad: str, an: bool = True) -> str:
+        return ""
+
+
+class FernDateien:
+    """Client: Arbeitskopien + Bearbeitungssperren."""
+    direkt = False
+
+    def __init__(self, v: Verbindung, kopien: Arbeitskopien):
+        self.v, self.k = v, kopien
+        self.direkt = kopien.direkt
+
+    def lokal(self, pfad: str, ref: str = "") -> Path | None:
+        return self.k.lokal(pfad, ref)
+
+    def akte_ordner(self, ref: str, ordner: str = "") -> Path | None:
+        if self.k.direkt and ordner:
+            return Path(ordner)
+        return self.k.akte_ordner(ref)
+
+    def sperren(self, pfad: str, an: bool = True) -> str:
+        e = self.k._eintrag_lokal(Path(pfad))
+        return self.v.sperren(e["server"] if e else str(pfad), an)

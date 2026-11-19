@@ -76,11 +76,34 @@ def _orte(ctx) -> tuple[Path, Path]:
 
 
 def _startordner(ctx) -> Path:
-    """Zuletzt erfolgreich benutzter Sicherungsordner (z. B. USB-Stick) – sonst der Datenbankordner."""
+    """Zuletzt erfolgreich benutzter Sicherungsordner (z. B. USB-Stick) – sonst der Datenbankordner
+    (im Mehrbenutzerbetrieb: der lokale Datenordner dieses Rechners)."""
     letzter = ctx.cfg.get("sicherung_letzter_ordner") or ""
     if letzter and Path(letzter).is_dir():
         return Path(letzter)
+    if ctx.mehrbenutzer:
+        from core.config import data_dir
+        return data_dir(ctx.cfg)
     return _orte(ctx)[0].parent
+
+
+def _paket_vom_server(ctx, fort, _abbr) -> s.Paket:
+    """Mehrbenutzer: Der Server stellt die Sicherung aller Benutzer zusammen und prüft sie; sie wird hierher
+    übertragen, damit sie auf einen USB-Stick an DIESEM Rechner gespeichert werden kann."""
+    import tempfile
+    fort(5, "Der Server stellt die Sicherung zusammen und prüft sie …")
+    daten, info = ctx.verbindung.sicherung_erstellen()
+    fort(80, "Sicherung wird übertragen und geprüft …")
+    tmp = Path(tempfile.mkdtemp(prefix="bnx-sicherung-"))
+    z = tmp / info["name"]
+    z.write_bytes(daten)
+    try:
+        geprueft = s.pruefen(z, __version__)
+    except s.SicherungFehler:
+        s.verwerfen(s.Paket(z, tmp, {}))
+        raise
+    manifest = dict(geprueft.manifest)
+    return s.Paket(z, tmp, manifest, list(info.get("fehlend") or []))
 
 
 def _mb(n: int) -> str:
@@ -88,9 +111,13 @@ def _mb(n: int) -> str:
 
 
 def sicherung_erstellen(parent, ctx, speichern_dialog=None) -> Path | None:
-    db, daten = _orte(ctx)
-    art, paket = _ausfuehren(parent, "Sicherung wird vorbereitet …",
-                             lambda fort, abbr: s.paket_erstellen(db, daten, app_dir(), __version__, fort, abbr))
+    if ctx.mehrbenutzer:
+        art, paket = _ausfuehren(parent, "Sicherung wird vorbereitet …",
+                                 lambda fort, abbr: _paket_vom_server(ctx, fort, abbr), abbrechbar=False)
+    else:
+        db, daten = _orte(ctx)
+        art, paket = _ausfuehren(parent, "Sicherung wird vorbereitet …",
+                                 lambda fort, abbr: s.paket_erstellen(db, daten, app_dir(), __version__, fort, abbr))
     if art == "abgebrochen":
         return None
     if art != "ok":
@@ -129,20 +156,75 @@ def sicherung_erstellen(parent, ctx, speichern_dialog=None) -> Path | None:
 
 def neu_starten():
     from PySide6.QtCore import QProcess
+    from core.config import _CONFIG_PFAD
+    extra = ["--config", str(_CONFIG_PFAD[0])] if _CONFIG_PFAD else []
     if getattr(sys, "frozen", False):
-        QProcess.startDetached(sys.executable, [])
+        QProcess.startDetached(sys.executable, extra)
     else:
-        QProcess.startDetached(sys.executable, [str(app_dir() / "main.py")])
+        QProcess.startDetached(sys.executable, [str(app_dir() / "main.py"), *extra])
     QApplication.quit()
 
 
+def _bestaetigen(parent, bestaetigen, text: str, infotext: str) -> bool:
+    if bestaetigen is not None:
+        return bestaetigen(text, infotext)
+    box = QMessageBox(QMessageBox.Warning, "Sicherung wiederherstellen", text, parent=parent)
+    box.setInformativeText(infotext)
+    ja = box.addButton("Wiederherstellen", QMessageBox.DestructiveRole)
+    nein = box.addButton("Abbrechen", QMessageBox.RejectRole)
+    box.setDefaultButton(nein)
+    box.setEscapeButton(nein)
+    box.exec()
+    return box.clickedButton() is ja
+
+
+def _datum(t: str) -> str:
+    try:
+        from datetime import datetime
+        return datetime.strptime(t, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y, %H:%M Uhr")
+    except ValueError:
+        return t
+
+
+def _zentral_wiederherstellen(parent, ctx, datei: str, bestaetigen) -> bool:
+    art, info = _ausfuehren(parent, "Sicherung wird zum Server übertragen und geprüft …",
+                            lambda fort, _a: ctx.verbindung.sicherung_pruefen(Path(datei).read_bytes()),
+                            abbrechbar=False)
+    if art != "ok":
+        QMessageBox.warning(parent, "Sicherung wiederherstellen",
+                            f"Diese Sicherung kann nicht wiederhergestellt werden.\n\n{info}")
+        return False
+    zeilen = "\n".join(f"  {k}: {v}   (aktuell: {info['aktuell'].get(k, 0)})" for k, v in info["anzahl"].items())
+    text = f"Sicherung vom {_datum(info['erstellt'])} (BnX-Raptor {info['programm_version']}) wiederherstellen?"
+    infotext = (f"Enthalten:\n{zeilen}\n  Dateien: {info['dateien']}\n\n"
+                "ACHTUNG: Die gemeinsamen Daten ALLER Benutzer (Mandanten, Akten/Mandate, Versicherungen, Adressbuch, "
+                "Verlauf, Dokumente, Benutzer und Einstellungen des Servers) werden durch den Stand dieser Sicherung "
+                "ERSETZT. Während der Wiederherstellung können an keinem Arbeitsplatz Daten geändert werden.\n\n"
+                f"Vorher legt der Server automatisch eine Sicherheitskopie an:\n{info['sicherheitskopien']}")
+    if not _bestaetigen(parent, bestaetigen, text, infotext):
+        return False
+    art, erg = _ausfuehren(parent, "Sicherung wird auf dem Server wiederhergestellt – bitte nichts ändern …",
+                           lambda fort, _a: ctx.verbindung.sicherung_wiederherstellen(info["token"]),
+                           abbrechbar=False)
+    if art != "ok":
+        QMessageBox.warning(parent, "Sicherung wiederherstellen", str(erg))
+        return False
+    QMessageBox.information(parent, "Sicherung wiederhergestellt",
+                            f"Die Sicherung wurde auf dem Server wiederhergestellt ({erg['dateien']} Dateien).\n\n"
+                            f"Sicherheitskopie des vorherigen Stands (auf dem Server):\n{erg['sicherheitskopie']}\n\n"
+                            "Alle Arbeitsplätze laden die Daten jetzt neu.")
+    return True
+
+
 def sicherung_wiederherstellen(parent, ctx, oeffnen_dialog=None, bestaetigen=None, neustart=neu_starten) -> bool:
-    db, daten = _orte(ctx)
     frage = oeffnen_dialog or (lambda: QFileDialog.getOpenFileName(
         parent, "Sicherung wiederherstellen – Datei wählen", str(_startordner(ctx)), FILTER)[0])
     datei = frage()
     if not datei:
         return False
+    if ctx.mehrbenutzer:
+        return _zentral_wiederherstellen(parent, ctx, datei, bestaetigen)
+    db, daten = _orte(ctx)
     art, info = _ausfuehren(parent, "Sicherung wird geprüft …",
                             lambda fort, _a: s.pruefen(Path(datei), __version__), abbrechbar=False)
     if art != "ok":
