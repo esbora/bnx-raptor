@@ -303,3 +303,24 @@ def test_konfliktkopie_beim_erfassen_wird_gemeldet(server):
     assert Path(sp).read_bytes() == b"%PDF Fassung 1"
     namen = [x["name"] for x in netz._Fern(ra, "archiv").liste(akte="K1")]
     assert any("_Konflikt_" in n for n in namen)
+
+
+def test_geoeffnete_arbeitskopie_wird_nicht_ersetzt(server):
+    d, adr, admin, tmp = server
+    ra, rk = _client(adr, "ra", "Anwalt-Passwort-1", tmp, "y1")
+    ra2, rk2 = _client(adr, "ra", "Anwalt-Passwort-1", tmp, "y2")
+    datei = tmp / "Akt.pdf"
+    datei.write_bytes(b"%PDF v1")
+    netz.FernArchiv(ra, rk).erfassen(datei, akte="K2")
+    sp = netz._Fern(ra, "archiv").liste(akte="K2")[0]["pfad"]
+    offen = rk2.lokal(sp, "K2")
+    netz.FernDateien(ra2, rk2).sperren(str(offen), True)              # im Editor geöffnet
+    a = rk.lokal(sp, "K2")
+    a.write_bytes(b"%PDF anderer Benutzer")
+    netz.FernArchiv(ra, rk).bearbeitet(a)
+    assert rk2.lokal(sp, "K2").read_bytes() == b"%PDF v1"           # Aktualisierung ersetzt die offene Datei nicht
+    offen.write_bytes(b"%PDF meine Fassung")
+    with pytest.raises(pr.Konflikt):
+        netz.FernArchiv(ra2, rk2).bearbeitet(offen)                 # → Konfliktkopie statt Überschreiben
+    netz.FernDateien(ra2, rk2).sperren(str(offen), False)
+    assert Path(sp).read_bytes() == b"%PDF anderer Benutzer"

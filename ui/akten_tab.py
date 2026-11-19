@@ -725,8 +725,7 @@ class AktenTab(QWidget):
                                 f"({Path(str(k.objekt)).name}).")
             self.akte_anzeigen()
         finally:
-            if not anderer:
-                self.ctx.dateien.sperren(str(p), False)
+            self.ctx.dateien.sperren(str(p), False)     # Server gibt nur die eigene Sperre frei
 
     def _bearbeiten_datei(self, r: int, it, p: Path):
         from .main_window import im_hintergrund

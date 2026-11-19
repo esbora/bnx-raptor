@@ -782,6 +782,7 @@ class Arbeitskopien:
             self.index = {}
         self.direkt = v.lokal                            # Server-Rechner: Dateien liegen hier
         self.konflikte: list[str] = []                   # beim Zurückschreiben entstandene Konfliktkopien
+        self.in_bearbeitung: set[str] = set()            # gerade in Word/PDF-Editor geöffnete Arbeitskopien
 
     def _speichern(self):
         tmp = self.index_datei.with_suffix(".tmp")
@@ -806,8 +807,8 @@ class Arbeitskopien:
         for k, e in self.index.items():
             if _nc(e["server"]) == _nc(server_pfad) and Path(e["lokal"]).is_file():
                 lok = Path(e["lokal"])
-                if _sha_datei(lok) != e["sha"]:
-                    return lok                           # lokale Änderung noch nicht hochgeladen → behalten
+                if _nc(lok) in self.in_bearbeitung or _sha_datei(lok) != e["sha"]:
+                    return lok                           # geöffnet oder lokal geändert → nie ersetzen
                 try:
                     daten, sha = self.v.datei_holen(server_pfad)
                 except ValueError:
@@ -978,6 +979,11 @@ class FernDateien:
         return self.k.akte_ordner(ref)
 
     def sperren(self, pfad: str, an: bool = True) -> str:
+        """Bearbeitungssperre auf dem Server + Schutz der geöffneten Arbeitskopie vor Aktualisierungen."""
+        if an:
+            self.k.in_bearbeitung.add(_nc(pfad))
+        else:
+            self.k.in_bearbeitung.discard(_nc(pfad))
         e = self.k._eintrag_lokal(Path(pfad))
         return self.v.sperren(e["server"] if e else str(pfad), an)
 
