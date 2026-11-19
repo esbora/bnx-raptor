@@ -670,6 +670,12 @@ class AnlagenTab(QWidget):
             return
         self._render_doc = e.dokument()
         self._raster_signatur = None
+        self._inhalt_neu = True                     # Inhalt kann sich geändert haben → immer neu zeichnen
+        if not hasattr(self, "_daten_ref"):
+            self._daten_ref, self._daten_version = {}, {}
+        if self._daten_ref.get(e.id) is not e.daten:  # neue Fassung (bearbeitet, gedreht …) → neue Cache-Version
+            self._daten_ref[e.id] = e.daten
+            self._daten_version[e.id] = self._daten_version.get(e.id, 0) + 1
         if behalten and self.seiten.count() != self._render_doc.page_count:
             self.seiten.clear(); behalten = False
         for p in self._render_doc:
@@ -713,9 +719,11 @@ class AnlagenTab(QWidget):
         r = seiten_raster(doc.page_count, breite, hoehe, verh, min_breite=260, abstand=12, beschriftung=22)
         kachel = (max(r.kachel_b, 60), max(r.kachel_h, 80))
         zelle = max(kachel[0] + 12, breite // max(r.spalten, 1))   # Zellen füllen die Breite → Seiten mittig
-        if kachel == self._kachel and self.seiten.gridSize() == QSize(zelle, kachel[1] + 30)                 and not self._render_warteschlange and all(not self.seiten.item(i).icon().isNull()
+        if not getattr(self, "_inhalt_neu", False) and kachel == self._kachel \
+                and self.seiten.gridSize() == QSize(zelle, kachel[1] + 30)                 and not self._render_warteschlange and all(not self.seiten.item(i).icon().isNull()
                                                            for i in range(self.seiten.count())):
             return                                  # gleiche Größe, schon gezeichnet → nichts tun
+        self._inhalt_neu = False
         self.seiten.setIconSize(QSize(*kachel))
         self.seiten.setGridSize(QSize(zelle, kachel[1] + 30))
         self._kachel = kachel
@@ -743,7 +751,7 @@ class AnlagenTab(QWidget):
         from PySide6.QtGui import QGuiApplication as _G
         dpr = _G.primaryScreen().devicePixelRatio() if _G.primaryScreen() else 1.0
         breite = int(max(self._kachel) * dpr)       # lange Kante – reicht auch für gedrehte Seiten
-        schluessel = (e.id, id(e.daten), nr, breite)
+        schluessel = (e.id, getattr(self, "_daten_version", {}).get(e.id, 0), nr, breite)
         pix = self._cache.get(schluessel)
         if pix is None:
             page = self._render_doc[nr]
