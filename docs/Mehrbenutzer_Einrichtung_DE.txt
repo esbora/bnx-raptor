@@ -1,0 +1,35 @@
+BnX-Raptor 0.4.2 – Mehrere Arbeitsplätze einrichten (Kurzanleitung)
+=====================================================================
+
+WICHTIG: Der Server-Rechner muss eingeschaltet sein und BnX-Raptor muss dort laufen,
+solange an den anderen Arbeitsplätzen gearbeitet wird. Nur im eigenen Büronetz verwenden.
+
+A) SERVER-RECHNER (einmalig)
+ 1. BnX-Raptor wie gewohnt installieren/entpacken und starten (vorhandene Daten bleiben erhalten).
+ 2. Einstellungen → Netzwerk → „Server“ → „Übernehmen und neu starten“.
+ 3. Beim Start: „Ersten Administrator anlegen“ (Benutzername, Anzeigename, Passwort mind. 8 Zeichen).
+ 4. Fragt Windows nach der Firewall: Zugriff im PRIVATEN Netzwerk erlauben.
+ 5. Einstellungen → Netzwerk: „Adresse für die anderen Rechner“ notieren, z. B. http://192.168.1.20:47310
+ 6. Einstellungen → „Benutzer verwalten…“ → „Neuer Benutzer…“ für jede Person
+    (Rolle: Sekretariat oder Rechtsanwalt; Anfangspasswort mitteilen).
+ 7. Rechner so einstellen, dass er während der Arbeitszeit nicht in den Ruhezustand geht.
+
+B) WEITERE ARBEITSPLÄTZE
+ 1. BnX-Raptor entpacken und starten.
+ 2. Einstellungen → Netzwerk → „Mit Server verbinden“ → Adresse aus A5 eintragen → „Verbindung testen“.
+ 3. „Übernehmen und neu starten“ → mit eigenem Benutzernamen und Passwort anmelden.
+ 4. Eigenes Passwort ändern: Einstellungen → „Passwort ändern…“.
+ Outlook (klassisch) und Word müssen auf jedem Arbeitsplatz installiert sein, an dem Entwürfe erstellt
+ bzw. Word-Dateien umgewandelt werden. Texterkennung (OCR) ist im Programm enthalten.
+
+C) SICHERUNG (nur Administrator)
+ Mandanten → „Sicherung erstellen…“ → am Ende USB-Stick wählen → „Speichern“.
+ Wiederherstellen: „Sicherung wiederherstellen…“ → Datei wählen → prüfen → „Wiederherstellen“.
+
+D) WENN KEINE VERBINDUNG
+ Links unten steht „Keine Verbindung zum Server“. Eingaben bleiben stehen, sind aber NICHT gespeichert.
+ Server-Rechner einschalten/BnX-Raptor dort starten → „Erneut verbinden“ – dann wird gespeichert.
+
+E) ZURÜCK ZUM EINZELPLATZ
+ Einstellungen → Netzwerk → „Einzelplatz“ → „Übernehmen und neu starten“ (nur auf dem Server-Rechner
+ sinnvoll – dort liegen die Daten).

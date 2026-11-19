@@ -229,6 +229,64 @@ Dokumente aus allen verknüpften Akten – bei mehreren Ordnern mit kurzer Auswa
 {bild('17_mandanten.png', 'Mandanten mit ihren Akten.', 420)}
 {bild('04_versicherungen.png', 'Versicherungen mit E-Mail-Adressen (= Versicherer-Adressbuch).', 420)}
 
+<h2>6a. Sicherung auf USB-Stick und Wiederherstellung</h2>
+<ol><li>Seite {ui('Mandanten')} → {ui('Sicherung erstellen…')}. BnX-Raptor stellt selbst alles zusammen: Datenbank
+(Mandanten, Akten/Mandate, Versicherungen, Adressbuch, Verlauf, Dokumentenarchiv), Kanzleidaten, alle verknüpften
+Dokumente – auch aus anderen Ordnern – und die Einstellungen. Nichts muss ausgewählt werden.</li>
+<li>Erst zum Schluss öffnet sich {ui('Sicherung speichern unter…')} mit dem Vorschlag
+<span class='t'>BnX-Raptor_Backup_JJJJ-MM-TT_HH-mm-ss.zip</span>. USB-Stick (oder anderen Ordner) wählen →
+{ui('Speichern')}. Beim nächsten Mal wird der zuletzt benutzte Ordner vorgeschlagen.</li>
+<li>Die Datei wird vor und nach dem Speichern geprüft. Nur wenn {ui('Sicherung erstellt')} mit Pfad erscheint, ist die
+Sicherung gültig. Fehlende oder nicht lesbare Dokumente werden genannt ({ui('Details einblenden…')}).</li></ol>
+<p><b>Wiederherstellen:</b> {ui('Sicherung wiederherstellen…')} → Datei wählen. BnX-Raptor prüft die Datei und zeigt Datum
+und Anzahl der Datensätze (mit dem aktuellen Stand). Nach {ui('Wiederherstellen')} wird zuerst automatisch eine
+Sicherheitskopie des aktuellen Stands angelegt (Datenordner\Sicherheitskopien), dann werden Datenbank und Dokumente
+gemeinsam ersetzt. Bricht etwas ab – auch durch Stromausfall –, wird der vorherige Stand automatisch zurückgeschrieben.
+Auf einem anderen Rechner werden fehlende Ordner nach Datenordner\Wiederhergestellt übernommen.</p>
+<div class='hinweis'>Im Mehrbenutzerbetrieb dürfen nur Administratoren sichern und wiederherstellen. Die Sicherung umfasst
+die gemeinsamen Daten aller Benutzer; das Speichern-Fenster öffnet sich am Rechner des Administrators (USB-Stick dort).
+Während einer Wiederherstellung kann an keinem Arbeitsplatz etwas geändert werden; danach laden alle neu.</div>
+
+<h2>6b. Mehrere Arbeitsplätze im Büronetz</h2>
+<p>Ein Rechner ist der <b>Server</b>: Nur dort liegen Datenbank und Dokumente, nur BnX-Raptor auf diesem Rechner öffnet
+sie. Die anderen Rechner verbinden sich über das Büronetz. Die Datenbank wird nie über eine Freigabe oder OneDrive
+geöffnet.</p>
+<div class='hinweis'><b class='fehler'>Wichtig:</b> Der Server-Rechner muss eingeschaltet sein und BnX-Raptor muss dort laufen, solange
+an anderen Arbeitsplätzen gearbeitet wird.</div>
+<ol><li><b>Server einrichten:</b> {ui('Einstellungen')} → Netzwerk → {ui('Server')} → {ui('Übernehmen und neu starten')}.
+Beim ersten Start den ersten Administrator anlegen. Fragt Windows, ob BnX-Raptor im privaten Netzwerk kommunizieren
+darf: erlauben. Unter {ui('Adresse für die anderen Rechner')} steht z. B. <span class='t'>http://192.168.1.20:47310</span>.
+Vorhandene Daten bleiben erhalten.</li>
+<li><b>Benutzer anlegen:</b> {ui('Einstellungen')} → {ui('Benutzer verwalten…')} → {ui('Neuer Benutzer…')} (Rolle
+Sekretariat oder Rechtsanwalt, Anfangspasswort). Dort auch {ui('Rolle ändern…')}, {ui('Passwort zurücksetzen…')} und
+{ui('Deaktivieren / Aktivieren')}. Jeder kann sein Passwort unter {ui('Passwort ändern…')} ändern.</li>
+<li><b>Arbeitsplatz verbinden:</b> {ui('Einstellungen')} → Netzwerk → {ui('Mit Server verbinden')} → Adresse eintragen →
+{ui('Verbindung testen')} → {ui('Übernehmen und neu starten')} → mit eigenem Benutzernamen anmelden.</li></ol>
+{tab(['Rolle', 'Darf'], [
+    ['Administrator', 'alles, zusätzlich Benutzer, Verbindungseinstellungen, Sicherung und Wiederherstellung'],
+    ['Sekretariat', 'Mandanten, Akten/Mandate und Versicherungen anlegen und ändern, Kontaktdaten, Dokumente hinzufügen; '
+                    'Dokumente ansehen, aber nicht überschreiben'],
+    ['Rechtsanwalt', 'alles sehen und korrigieren, Dokumente bearbeiten, Outlook-Entwürfe'],
+])}
+<ul><li><b>Wer hat was getan?</b> Unter dem Namen von Mandant und Akte steht „Erstellt von … am …“ und „Zuletzt geändert
+von … am …“. Der {ui('Änderungsverlauf')} zeigt Benutzer, Zeit, Aktion und geänderte Felder (nie Passwörter). Einträge
+deaktivierter Benutzer bleiben sichtbar.</li>
+<li><b>Automatisch aktuell:</b> Was andere eintragen, erscheint nach wenigen Sekunden. Eine Eingabe, die Sie gerade
+machen, wird dabei nicht überschrieben.</li>
+<li><b>Gleichzeitig geändert:</b> Hat jemand dasselbe Feld inzwischen geändert, wird nichts überschrieben. Ein Fenster
+zeigt {ui('Ihre Eingabe')} und den {ui('Aktueller Stand')}: {ui('Meine Eingabe speichern')},
+{ui('Aktuellen Stand übernehmen')} oder {ui('Später entscheiden')}. Bei Dokumenten wird eine gleichzeitig gespeicherte
+zweite Fassung als „…_Konflikt_…“-Kopie in der Akte abgelegt; wird ein Dokument gerade von jemand anderem bearbeitet,
+weist BnX-Raptor vor dem Öffnen darauf hin.</li>
+<li><b>Verbindung weg:</b> Links unten erscheint „Keine Verbindung zum Server“. Eingaben bleiben im Formular und werden
+mit „NICHT gespeichert“ markiert; nach dem Wiederverbinden ({ui('Erneut verbinden')} oder automatisch) werden sie
+gespeichert.</li>
+<li><b>Wo läuft was?</b> Outlook-Entwürfe, Word-Umwandlung und Texterkennung (OCR) laufen immer am Rechner, an dem
+gearbeitet wird (Outlook und Word müssen dort installiert sein). Dokumente werden dafür als lokale Arbeitskopie
+geholt und nach dem Speichern zum Server zurückgeschrieben.</li></ul>
+<div class='hinweis'>Die Verbindung im Büronetz ist signiert (Passwörter werden nie übertragen), aber nicht verschlüsselt.
+Nur im eigenen, vertrauenswürdigen Büronetz verwenden – nicht über das Internet.</div>
+
 <h2>7. Häufige Probleme und Lösungen</h2>
 {tab(['Problem', 'Ursache und Lösung'], [
     ['„… ist in Word geöffnet und nicht gespeichert“', 'Die Datei ist in Word offen und hat ungespeicherte Änderungen. In Word speichern (oder schließen) und erneut starten.'],

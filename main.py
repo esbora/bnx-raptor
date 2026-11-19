@@ -50,17 +50,17 @@ def main() -> int:
     protokoll_einrichten(ordner)        # nur Fehlerdetails, keine Dokumentinhalte
     # Unterbrochene Wiederherstellung (Absturz/Stromausfall) → vorherigen Stand zurückschreiben
     from core.sicherung import offene_wiederherstellung_zuruecksetzen
-    modus = cfg.get("modus") or "einzelplatz"
-    zurueckgesetzt = modus != "client" and offene_wiederherstellung_zuruecksetzen(ordner)
+    netz_modus = cfg.get("modus") or "einzelplatz"
+    zurueckgesetzt = netz_modus != "client" and offene_wiederherstellung_zuruecksetzen(ordner)
     if zurueckgesetzt:
         cfg = load_config()
     dienst = None
-    if modus in ("server", "client"):
+    if netz_modus in ("server", "client"):
         from core import netz
         from core import protokoll as pr
         from core.config import app_dir
         from ui import netz_ui
-        if modus == "server":
+        if netz_modus == "server":
             import time as _time
             fehler = None
             for _ in range(20):
@@ -83,7 +83,7 @@ def main() -> int:
             return 0
         b = verbindung.benutzer or {}
         pr.setzen(pr.Benutzer(b.get("name", ""), b.get("rolle", ""), b.get("anzeigename") or ""), standard=True)
-        kopien_ordner = ordner / ("Arbeitskopien" if modus == "client" else "Arbeitskopien_Server")
+        kopien_ordner = ordner / ("Arbeitskopien" if netz_modus == "client" else "Arbeitskopien_Server")
         kopien = netz.Arbeitskopien(verbindung, kopien_ordner)
         journal = netz.FernJournal(verbindung, kopien)
         ctx = AppContext(cfg, netz.FernKanzlei(verbindung, kopien), journal, verbindung=verbindung, kopien=kopien)
