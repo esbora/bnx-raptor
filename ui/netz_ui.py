@@ -24,7 +24,8 @@ MODI = {"einzelplatz": "Einzelplatz", "server": "Server", "client": "Mit Server 
 
 # --------------------------------------------------------------------------- Anmeldung
 class AnmeldeDialog(QDialog):
-    def __init__(self, verbindung: netz.Verbindung, erster_admin: bool = False, hinweis: str = ""):
+    def __init__(self, verbindung: netz.Verbindung, erster_admin: bool = False, hinweis: str = "",
+                 kanzlei: str = "", name: str = ""):
         super().__init__()
         self.v = verbindung
         self.erster = erster_admin
@@ -35,8 +36,9 @@ class AnmeldeDialog(QDialog):
         kopf.addWidget(theme.Marke(30))
         kopf.addWidget(theme.ueberschrift("Ersten Administrator anlegen" if erster_admin else "Anmelden", "h2"), 1)
         lay.addLayout(kopf)
-        info = QLabel(("Dieser Rechner ist der Server. Legen Sie jetzt den ersten Administrator an – er kann danach "
-                       "weitere Benutzer anlegen.") if erster_admin else f"Server: {verbindung.adresse}")
+        info = QLabel(("Dieser PC stellt die Kanzlei-Daten bereit. Legen Sie jetzt den ersten Administrator an – er "
+                       "kann danach weitere Benutzer anlegen.") if erster_admin else
+                      f"Kanzlei: {kanzlei or '–'}  ·  {verbindung.adresse}")
         info.setWordWrap(True)
         theme.rolle(info, "gedimmt")
         lay.addWidget(info)
@@ -72,7 +74,11 @@ class AnmeldeDialog(QDialog):
         knoepfe.accepted.connect(self.anmelden)
         knoepfe.rejected.connect(self.reject)
         lay.addWidget(knoepfe)
-        self.name.setFocus()
+        if name:
+            self.name.setText(name)
+            self.pw.setFocus()
+        else:
+            self.name.setFocus()
 
     def anmelden(self):
         name, pw = self.name.text().strip(), self.pw.text()
@@ -101,37 +107,199 @@ class AnmeldeDialog(QDialog):
         self.accept()
 
 
+FIREWALL_TEXT = (
+    "Windows-Firewall: Beim ersten Bereitstellen fragt Windows, ob BnX-Raptor im Netzwerk kommunizieren darf – "
+    "„Private Netzwerke“ anhaken und „Zugriff zulassen“ klicken. Wurde die Frage weggeklickt: Start → "
+    "„Windows-Sicherheit“ → „Firewall- & Netzwerkschutz“ → „Zugriff von App durch Firewall zulassen“ → "
+    "„Einstellungen ändern“ → bei „BnX-Raptor“ den Haken unter „Privat“ setzen.")
+
+
+def _merken(cfg: dict, server: dict) -> None:
+    from core.config import einstellung_speichern
+    werte = {"modus": "client", "server_adresse": server["adresse"], "server_kanzlei": server.get("kanzlei", ""),
+             "server_rechner": server.get("rechner", "")}
+    for k, v in werte.items():
+        cfg[k] = v
+        einstellung_speichern(k, v)
+
+
+class VerbindenDialog(QDialog):
+    """„Mit bestehender Kanzlei verbinden“: sucht den Hauptrechner automatisch – ein Klick genügt."""
+
+    def __init__(self, parent=None, cfg: dict | None = None, hinweis: str = ""):
+        super().__init__(parent)
+        self.cfg = cfg if cfg is not None else {}
+        self.server: dict | None = None
+        self.setWindowTitle("Mit bestehender Kanzlei verbinden")
+        self.setMinimumWidth(520)
+        lay = QVBoxLayout(self)
+        lay.addWidget(theme.ueberschrift("Mit bestehender Kanzlei verbinden", "h2"))
+        self.status = QLabel(hinweis or "Suche im Büronetz …")
+        self.status.setWordWrap(True)
+        lay.addWidget(self.status)
+        from PySide6.QtWidgets import QListWidget, QListWidgetItem
+        self._item = QListWidgetItem
+        self.liste = QListWidget()
+        self.liste.setAccessibleName("Gefundene Kanzleien")
+        self.liste.setMinimumHeight(110)
+        self.liste.itemDoubleClicked.connect(lambda *_: self.verbinden())
+        lay.addWidget(self.liste)
+        self.b_manuell = QPushButton("Verbindungsadresse eingeben…")
+        theme.rolle(self.b_manuell, "link")
+        self.b_manuell.clicked.connect(self.manuell)
+        lay.addWidget(self.b_manuell)
+        knoepfe = QHBoxLayout()
+        self.b_suchen = QPushButton("Erneut suchen")
+        self.b_suchen.clicked.connect(self.suchen)
+        knoepfe.addWidget(self.b_suchen)
+        knoepfe.addStretch(1)
+        ab = QPushButton("Abbrechen")
+        ab.clicked.connect(self.reject)
+        knoepfe.addWidget(ab)
+        self.b_ok = QPushButton("Verbinden")
+        theme.rolle(self.b_ok, "primaer")
+        self.b_ok.clicked.connect(self.verbinden)
+        knoepfe.addWidget(self.b_ok)
+        lay.addLayout(knoepfe)
+        QTimer.singleShot(100, self.suchen)
+
+    def suchen(self):
+        self.liste.clear()
+        theme.status_setzen(self.status, None, "Suche im Büronetz …")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            QApplication.processEvents()
+            gefunden = netz.suchen(2.0)
+        finally:
+            QApplication.restoreOverrideCursor()
+        for s in gefunden:
+            it = self._item(f"{s['kanzlei'] or 'Kanzlei'}  ·  Rechner {s['rechner']}  ·  {s['adresse']}")
+            it.setData(Qt.UserRole, s)
+            self.liste.addItem(it)
+        if gefunden:
+            self.liste.setCurrentRow(0)
+            theme.status_setzen(self.status, "ok", "Gefunden – „Verbinden“ klicken." if len(gefunden) == 1 else
+                                "Mehrere gefunden – bitte die eigene Kanzlei wählen und „Verbinden“ klicken.")
+        else:
+            theme.status_setzen(self.status, "warn", "Keine Kanzlei im Büronetz gefunden. Ist der Hauptrechner "
+                                "eingeschaltet und BnX-Raptor dort geöffnet? Sonst „Verbindungsadresse eingeben…“ "
+                                "(steht am Hauptrechner unter Einstellungen → Netzwerk).")
+
+    def manuell(self):
+        adr, ok = QInputDialog.getText(self, "Verbindungsadresse", "Adresse vom Hauptrechner (Einstellungen → "
+                                       f"Netzwerk), z. B. http://192.168.1.20:{netz.STANDARD_PORT}:")
+        if ok and adr.strip():
+            self._pruefen(netz.Verbindung(adr.strip()).adresse)
+
+    def verbinden(self):
+        it = self.liste.currentItem()
+        if it is None:
+            theme.status_setzen(self.status, "warn", "Bitte zuerst eine Kanzlei wählen (oder Adresse eingeben).")
+            return
+        s = it.data(Qt.UserRole)
+        self._pruefen(s["adresse"], s.get("alternativen") or [])
+
+    def _pruefen(self, adresse: str, alternativen: list[str] | None = None):
+        info = None
+        for adr in [adresse, *(alternativen or [])]:
+            try:
+                info = netz.Verbindung(adr).ping()
+                adresse = adr
+                break
+            except netz.VerbindungFehler:
+                continue
+        if info is None:
+            theme.status_setzen(self.status, "fehler", f"Server nicht erreichbar ({adresse}). Hauptrechner "
+                                "eingeschaltet? BnX-Raptor dort geöffnet? Ggf. Windows-Firewall am Hauptrechner "
+                                "prüfen (siehe Anleitung). → „Erneut suchen“")
+            return
+        self.server = {"adresse": adresse, "kanzlei": info.get("kanzlei", ""), "rechner": info.get("rechner", "")}
+        _merken(self.cfg, self.server)
+        self.accept()
+
+
 def verbinden(cfg: dict, server_laeuft: bool) -> netz.Verbindung | None:
-    """Anmeldung beim Start (Server-Rechner: an den eigenen Dienst; Client: an die eingetragene Adresse)."""
+    """Beim Start: Server-Rechner → eigener Dienst; Arbeitsplatz → gemerkter Server (bei geänderter Adresse
+    automatisch neu gefunden). Danach Anmeldung mit eigenem Benutzernamen."""
     if cfg.get("modus") == "server":
         v = netz.Verbindung(f"127.0.0.1:{int(cfg.get('server_port') or netz.STANDARD_PORT)}")
     else:
+        if not cfg.get("server_adresse"):
+            dlg = VerbindenDialog(None, cfg)
+            if dlg.exec() != QDialog.Accepted:
+                return None
         v = netz.Verbindung(cfg.get("server_adresse") or "")
     while True:
         try:
             info = v.ping()
             erster = cfg.get("modus") == "server" and not info.get("benutzer_vorhanden")
-            dlg = AnmeldeDialog(v, erster_admin=erster)
-            return v if dlg.exec() == QDialog.Accepted else None
-        except netz.VerbindungFehler as e:
-            box = QMessageBox(QMessageBox.Warning, "BnX-Raptor – Verbindung", str(e))
-            box.setInformativeText("Adresse in config.json bzw. unter Einstellungen → Netzwerk prüfen. "
-                                   f"Eingetragene Adresse: {v.adresse or '(keine)'}")
+            dlg = AnmeldeDialog(v, erster_admin=erster, kanzlei=info.get("kanzlei", ""),
+                                name=cfg.get("letzter_benutzer", ""))
+            if dlg.exec() != QDialog.Accepted:
+                return None
+            from core.config import einstellung_speichern
+            einstellung_speichern("letzter_benutzer", (v.benutzer or {}).get("name", ""))
+            return v
+        except netz.VerbindungFehler:
+            if cfg.get("modus") == "client":
+                # Adresse geändert (z. B. neue IP)? Gleiche Kanzlei automatisch wiederfinden.
+                for s in netz.suchen(2.0):
+                    if s["rechner"] == cfg.get("server_rechner") and s["adresse"] != v.adresse:
+                        _merken(cfg, {**s, "kanzlei": s["kanzlei"] or cfg.get("server_kanzlei", "")})
+                        v = netz.Verbindung(s["adresse"])
+                        break
+                else:
+                    s = None
+                if s:
+                    continue
+            box = QMessageBox(QMessageBox.Warning, "BnX-Raptor – Server nicht erreichbar",
+                              "Server nicht erreichbar." if cfg.get("modus") == "client" else
+                              "Der eigene Server-Dienst antwortet nicht.")
+            box.setInformativeText(
+                f"Kanzlei: {cfg.get('server_kanzlei') or '–'} (Rechner {cfg.get('server_rechner') or '–'})\n"
+                "Bitte den Hauptrechner einschalten und BnX-Raptor dort öffnen.\n\n" + FIREWALL_TEXT)
             erneut = box.addButton("Erneut versuchen", QMessageBox.AcceptRole)
-            adresse = box.addButton("Adresse ändern…", QMessageBox.ActionRole)
+            neu = box.addButton("Andere Kanzlei / Adresse…", QMessageBox.ActionRole) \
+                if cfg.get("modus") == "client" else None
             box.addButton("Beenden", QMessageBox.RejectRole)
+            box.setDefaultButton(erneut)
             box.exec()
-            if box.clickedButton() is adresse:
-                neu, ok = QInputDialog.getText(None, "Server-Adresse", "Adresse des Servers (z. B. "
-                                               f"http://192.168.1.20:{netz.STANDARD_PORT}):", text=v.adresse)
-                if ok and neu.strip():
-                    from core.config import einstellung_speichern
-                    cfg["server_adresse"] = neu.strip()
-                    einstellung_speichern("server_adresse", neu.strip())
-                    v = netz.Verbindung(neu.strip())
+            if neu is not None and box.clickedButton() is neu:
+                dlg = VerbindenDialog(None, cfg)
+                if dlg.exec() == QDialog.Accepted:
+                    v = netz.Verbindung(cfg["server_adresse"])
                 continue
             if box.clickedButton() is not erneut:
                 return None
+
+
+class Willkommen(QDialog):
+    """Erster Start auf einem neuen PC: neue Kanzlei hier – oder mit bestehender Kanzlei verbinden."""
+
+    def __init__(self):
+        super().__init__()
+        self.wahl = ""
+        self.setWindowTitle("BnX-Raptor – Willkommen")
+        self.setMinimumWidth(560)
+        lay = QVBoxLayout(self)
+        kopf = QHBoxLayout()
+        kopf.addWidget(theme.Marke(34))
+        kopf.addWidget(theme.ueberschrift("Willkommen bei BnX-Raptor", "h2"), 1)
+        lay.addLayout(kopf)
+        lay.addWidget(QLabel("Wie soll dieser PC arbeiten?"))
+        b1 = QPushButton("Mit bestehender Kanzlei verbinden\n(die Daten liegen auf dem Hauptrechner im Büro)")
+        theme.rolle(b1, "primaer")
+        b1.setMinimumHeight(64)
+        b1.clicked.connect(lambda: self._fertig("verbinden"))
+        b2 = QPushButton("Neue Kanzlei auf diesem PC\n(erster oder einziger Arbeitsplatz)")
+        b2.setMinimumHeight(64)
+        b2.clicked.connect(lambda: self._fertig("neu"))
+        lay.addWidget(b1)
+        lay.addWidget(b2)
+
+    def _fertig(self, w: str):
+        self.wahl = w
+        self.accept()
 
 
 # --------------------------------------------------------------------------- Status + Aktualisierung
@@ -418,108 +586,120 @@ def eigenes_passwort(parent, v: netz.Verbindung):
 
 # --------------------------------------------------------------------------- Netzwerk-Einstellungen
 class NetzEinstellungen(QWidget):
-    """„Einzelplatz“ / „Server“ / „Mit Server verbinden“ – mit Adresse für die anderen Rechner."""
+    """Einstellungen → Netzwerk: „Daten auf diesem PC bereitstellen“ / „Mit bestehender Kanzlei verbinden“."""
 
     def __init__(self, ctx, neustart):
         super().__init__()
         self.ctx, self.neustart = ctx, neustart
         cfg = ctx.cfg
+        modus = cfg.get("modus") or "einzelplatz"
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        reihe = QHBoxLayout()
-        self.gruppe = QButtonGroup(self)
-        self.radios = {}
-        for k, t in MODI.items():
-            r = QRadioButton(t)
-            r.setAccessibleName(t)
-            self.gruppe.addButton(r)
-            self.radios[k] = r
-            reihe.addWidget(r)
-        reihe.addStretch(1)
-        lay.addLayout(reihe)
-        self.radios.get(cfg.get("modus") or "einzelplatz", self.radios["einzelplatz"]).setChecked(True)
-        form = QFormLayout()
-        self.port = QSpinBox()
-        self.port.setRange(1024, 65535)
-        self.port.setValue(int(cfg.get("server_port") or netz.STANDARD_PORT))
-        self.port.setAccessibleName("Port")
-        form.addRow("Port:", self.port)
-        self.l_adresse = QLabel("")
-        self.l_adresse.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.l_adresse.setWordWrap(True)
-        self.l_adresse.setAccessibleName("Adresse für die anderen Rechner")
-        form.addRow("Adresse für die anderen Rechner:", self.l_adresse)
-        adr = QHBoxLayout()
-        self.adresse = QLineEdit(cfg.get("server_adresse") or "")
-        self.adresse.setPlaceholderText(f"z. B. http://192.168.1.20:{netz.STANDARD_PORT}")
-        self.adresse.setAccessibleName("Server-Adresse")
-        adr.addWidget(self.adresse, 1)
-        b_test = QPushButton("Verbindung testen")
-        b_test.clicked.connect(self.testen)
-        adr.addWidget(b_test)
-        form.addRow("Server-Adresse:", adr)
-        lay.addLayout(form)
         self.hinweis = QLabel("")
         self.hinweis.setWordWrap(True)
-        lay.addWidget(self.hinweis)
-        unten = QHBoxLayout()
-        self.b_ok = QPushButton("Übernehmen und neu starten")
-        theme.rolle(self.b_ok, "primaer")
-        self.b_ok.clicked.connect(self.uebernehmen)
-        unten.addWidget(self.b_ok)
-        unten.addStretch(1)
-        lay.addLayout(unten)
-        self.gruppe.buttonToggled.connect(lambda *_: self._zeigen())
-        self.port.valueChanged.connect(lambda *_: self._zeigen())
-        self._zeigen()
         darf = (not ctx.mehrbenutzer) or ctx.rolle == "admin"
-        for w in (*self.radios.values(), self.port, self.adresse, self.b_ok):
-            w.setEnabled(darf)
+        if modus == "server":
+            port = int(cfg.get("server_port") or netz.STANDARD_PORT)
+            adressen = netz.lokale_adressen(port)
+            t = QLabel("<b>Dieser PC stellt die Kanzlei-Daten bereit.</b> Er muss eingeschaltet bleiben und BnX-Raptor "
+                       "muss hier geöffnet sein, solange an anderen PCs gearbeitet wird.")
+            t.setWordWrap(True)
+            lay.addWidget(t)
+            zeile = QHBoxLayout()
+            zeile.addWidget(QLabel("Verbindungsadresse:"))
+            self.l_adresse = QLabel(adressen[0] if adressen else "–")
+            self.l_adresse.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self.l_adresse.setAccessibleName("Verbindungsadresse")
+            self.l_adresse.setStyleSheet("font-weight: 700;")
+            self.l_adresse.setToolTip("\n".join(adressen))
+            zeile.addWidget(self.l_adresse)
+            b_kopie = QPushButton("Kopieren")
+            b_kopie.clicked.connect(lambda: (QApplication.clipboard().setText(self.l_adresse.text()),
+                                             theme.status_setzen(self.hinweis, "ok", "Adresse kopiert.")))
+            zeile.addWidget(b_kopie)
+            zeile.addStretch(1)
+            lay.addLayout(zeile)
+            auto = theme.rolle(QLabel("Weitere PCs finden diesen PC automatisch: dort „Mit bestehender Kanzlei "
+                                      "verbinden“ wählen. Die Adresse wird nur gebraucht, wenn die automatische Suche "
+                                      "nichts findet."), "gedimmt")
+            auto.setWordWrap(True)
+            lay.addWidget(auto)
+            fw = theme.rolle(QLabel(FIREWALL_TEXT), "gedimmt")
+            fw.setWordWrap(True)
+            lay.addWidget(fw)
+            unten = QHBoxLayout()
+            b = QPushButton("Bereitstellung beenden (nur dieser PC)")
+            b.setEnabled(darf)
+            b.clicked.connect(lambda: self._wechseln("einzelplatz"))
+            unten.addWidget(b)
+            unten.addStretch(1)
+            lay.addLayout(unten)
+        elif modus == "client":
+            t = QLabel(f"<b>Verbunden mit Kanzlei „{cfg.get('server_kanzlei') or '–'}“</b> (Hauptrechner "
+                       f"{cfg.get('server_rechner') or '–'}, {cfg.get('server_adresse') or '–'}). Die Daten liegen auf "
+                       "dem Hauptrechner – er muss eingeschaltet sein.")
+            t.setWordWrap(True)
+            lay.addWidget(t)
+            unten = QHBoxLayout()
+            b = QPushButton("Mit anderer Kanzlei / Adresse verbinden…")
+            b.clicked.connect(self._neu_verbinden)
+            unten.addWidget(b)
+            b2 = QPushButton("Verbindung trennen (nur dieser PC)")
+            b2.setEnabled(darf)
+            b2.clicked.connect(lambda: self._wechseln("einzelplatz"))
+            unten.addWidget(b2)
+            unten.addStretch(1)
+            lay.addLayout(unten)
+        else:
+            lay.addWidget(QLabel("Arbeiten mehrere PCs im Büro mit denselben Mandanten und Akten?"))
+            reihe = QHBoxLayout()
+            b1 = QPushButton("Daten auf diesem PC bereitstellen")
+            theme.rolle(b1, "primaer")
+            b1.setToolTip("Dieser PC wird der Hauptrechner: vorhandene Daten bleiben hier und stehen den anderen PCs "
+                          "zur Verfügung.")
+            b1.clicked.connect(self._bereitstellen)
+            b2 = QPushButton("Mit bestehender Kanzlei verbinden")
+            b2.setToolTip("Dieser PC arbeitet mit den Daten des Hauptrechners.")
+            b2.clicked.connect(self._neu_verbinden)
+            for b in (b1, b2):
+                b.setEnabled(darf)
+                reihe.addWidget(b)
+            reihe.addStretch(1)
+            lay.addLayout(reihe)
+            theme.status_setzen(self.hinweis, None, "Zurzeit arbeitet nur dieser PC mit den Daten.")
+        lay.addWidget(self.hinweis)
         if not darf:
             theme.status_setzen(self.hinweis, None, "Nur Administratoren können die Verbindung ändern.")
 
-    def modus(self) -> str:
-        return next(k for k, r in self.radios.items() if r.isChecked())
+    def _bereitstellen(self):
+        box = QMessageBox(QMessageBox.Question, "Daten bereitstellen",
+                          "Dieser PC wird der Hauptrechner der Kanzlei.")
+        box.setInformativeText("Die vorhandenen Daten bleiben hier. Dieser PC muss eingeschaltet bleiben und "
+                               "BnX-Raptor geöffnet sein, solange andere arbeiten. Nach dem Neustart legen Sie den "
+                               "ersten Administrator an.\n\n" + FIREWALL_TEXT)
+        ja = box.addButton("Bereitstellen und neu starten", QMessageBox.AcceptRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is ja:
+            self._wechseln("server", frage=False)
 
-    def _zeigen(self):
-        m = self.modus()
-        self.port.setEnabled(m == "server")
-        self.adresse.setEnabled(m == "client")
-        self.l_adresse.setText("\n".join(netz.lokale_adressen(self.port.value())) if m == "server" else "–")
-        texte = {
-            "einzelplatz": "Nur dieser Rechner arbeitet mit den Daten (bisheriges Verhalten).",
-            "server": "Dieser Rechner verwaltet Datenbank und Dokumente für alle. Er muss eingeschaltet sein und "
-                      "BnX-Raptor muss hier laufen, solange andere arbeiten. Beim ersten Start fragt Windows evtl., ob "
-                      "BnX-Raptor im privaten Netzwerk kommunizieren darf – bitte erlauben. Vorhandene Daten bleiben "
-                      "erhalten.",
-            "client": "Dieser Rechner arbeitet mit den Daten des Servers. Outlook-Entwürfe, Word-Umwandlung und "
-                      "Texterkennung laufen hier auf diesem Rechner.",
-        }
-        theme.status_setzen(self.hinweis, None, texte[m])
+    def _neu_verbinden(self):
+        dlg = VerbindenDialog(self, self.ctx.cfg)
+        if dlg.exec() == QDialog.Accepted:
+            QMessageBox.information(self, "Verbunden", f"Verbunden mit „{dlg.server.get('kanzlei') or dlg.server['adresse']}“."
+                                    " BnX-Raptor startet neu – danach mit eigenem Benutzernamen anmelden.")
+            self.neustart()
 
-    def testen(self):
-        v = netz.Verbindung(self.adresse.text())
-        try:
-            info = v.ping()
-            theme.status_setzen(self.hinweis, "ok", f"Verbindung in Ordnung: BnX-Raptor {info.get('version')} auf "
-                                                    f"„{info.get('rechner')}“ ({v.adresse}).")
-        except netz.VerbindungFehler as e:
-            theme.status_setzen(self.hinweis, "fehler", str(e))
-
-    def uebernehmen(self):
+    def _wechseln(self, modus: str, frage: bool = True):
         from core.config import einstellung_speichern
-        m = self.modus()
-        if m == "client" and not self.adresse.text().strip():
-            theme.status_setzen(self.hinweis, "warn", "Bitte die Adresse des Servers eintragen.")
+        if frage and QMessageBox.question(self, "Netzwerk", "Wirklich umstellen? BnX-Raptor startet neu.",
+                                          QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
-        werte = {"modus": m, "server_port": self.port.value(), "server_adresse": self.adresse.text().strip()}
-        if all(einstellung_speichern(k, v) for k, v in werte.items()):
-            self.ctx.cfg.update(werte)
-            if QMessageBox.question(self, "Netzwerk", f"Modus „{MODI[m]}“ gespeichert. BnX-Raptor jetzt neu "
-                                    "starten?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
-                self.neustart()
-        else:
-            theme.status_setzen(self.hinweis, "fehler", "config.json ist nicht schreibbar – nicht gespeichert.")
+        if not einstellung_speichern("modus", modus):
+            theme.status_setzen(self.hinweis, "fehler", "config.json ist nicht schreibbar – nicht umgestellt.")
+            return
+        self.ctx.cfg["modus"] = modus
+        self.neustart()
 
 
 def akte_lokal(ctx, ref: str) -> Path:

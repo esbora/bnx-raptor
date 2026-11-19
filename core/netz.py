@@ -42,6 +42,8 @@ from core import protokoll as pr
 
 LOG = logging.getLogger(__name__)
 STANDARD_PORT = 47310
+SUCH_PORT = 47311                    # UDP: „Wo ist der BnX-Raptor-Server?“ (nur im lokalen Netz)
+SUCH_ANFRAGE = b"BNX-RAPTOR-SUCHE-1"
 SITZUNG_GUELTIG = 12 * 3600
 SPERRE_GUELTIG = 4 * 3600
 DOKUMENTE = "Dokumente"
@@ -152,7 +154,14 @@ def lokale_adressen(port: int) -> list[str]:
             ips.add(s.getsockname()[0])
     except OSError:
         pass
-    ips = sorted(i for i in ips if not i.startswith("127."))
+    standard = ""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            standard = s.getsockname()[0]
+    except OSError:
+        pass
+    ips = sorted((i for i in ips if not i.startswith("127.")), key=lambda i: (i != standard, i))
     name = socket.gethostname()
     return [f"http://{i}:{port}" for i in ips] + [f"http://{name}:{port}"]
 
@@ -202,15 +211,52 @@ class Dienst:
         self._thread: threading.Thread | None = None
 
     # --- Start/Stopp -------------------------------------------------------------
-    def starten(self) -> "Dienst":
+    def starten(self, suchdienst: bool = True) -> "Dienst":
         self._thread = threading.Thread(target=self.http.serve_forever, name="BnX-Server", daemon=True)
         self._thread.start()
+        if suchdienst:
+            self._such_starten()
         return self
+
+    def kanzleiname(self) -> str:
+        try:
+            return self.objekte["kanzlei"].laden().name or ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _such_starten(self) -> None:
+        """Antwortet auf die automatische Suche der anderen Arbeitsplätze (UDP im Büronetz)."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("0.0.0.0", SUCH_PORT))
+        except OSError:
+            LOG.warning("Suchdienst nicht verfügbar (Port %s belegt)", SUCH_PORT)
+            return
+        self._such_socket = s
+
+        def antworten():
+            while True:
+                try:
+                    daten, absender = s.recvfrom(512)
+                except OSError:
+                    return
+                if daten.strip() != SUCH_ANFRAGE:
+                    continue
+                bevorzugt = lokale_adressen(self.port)[0].split("//", 1)[-1].rsplit(":", 1)[0]
+                antwort = json.dumps({"app": "BnX-Raptor", "kanzlei": self.kanzleiname(), "port": self.port,
+                                      "rechner": socket.gethostname(), "version": self.version,
+                                      "ip": bevorzugt}).encode("utf-8")
+                with contextlib.suppress(OSError):
+                    s.sendto(antwort, absender)
+        threading.Thread(target=antworten, name="BnX-Suche", daemon=True).start()
 
     def beenden(self) -> None:
         with contextlib.suppress(Exception):
             self.http.shutdown()
             self.http.server_close()
+        with contextlib.suppress(Exception):
+            self._such_socket.close()
         with contextlib.suppress(Exception):
             self.journal.con.close()
 
@@ -312,7 +358,7 @@ class _Handler(BaseHTTPRequestHandler):
                 with d.lock:
                     leer = d.benutzerverwaltung.anzahl() == 0
                 return self._ok({"app": "BnX-Raptor", "version": d.version, "benutzer_vorhanden": not leer,
-                                 "rechner": socket.gethostname()})
+                                 "rechner": socket.gethostname(), "kanzlei": d.kanzleiname()})
             if pfad == "/anmelden/start":
                 name = str(meta.get("name", ""))
                 with d.lock:
@@ -731,6 +777,7 @@ class Arbeitskopien:
         except (OSError, ValueError):
             self.index = {}
         self.direkt = v.lokal                            # Server-Rechner: Dateien liegen hier
+        self.konflikte: list[str] = []                   # beim Zurückschreiben entstandene Konfliktkopien
 
     def _speichern(self):
         tmp = self.index_datei.with_suffix(".tmp")
@@ -809,6 +856,7 @@ class Arbeitskopien:
         if erg.get("konflikt"):
             # Eigene Fassung liegt jetzt als Konfliktkopie auf dem Server; Arbeitskopie zeigt künftig darauf
             e["server"] = erg["pfad"]
+            self.konflikte.append(erg["pfad"])
         e["sha"] = erg["sha"]
         self._speichern()
         return erg["pfad"], bool(erg.get("konflikt"))
@@ -819,19 +867,27 @@ class FernArchiv(_Fern):
         super().__init__(v, "archiv")
         self._k = kopien
 
+    def _konflikt_melden(self):
+        if self._k.konflikte:
+            sp = self._k.konflikte.pop()
+            self._k.konflikte.clear()
+            raise pr.Konflikt("dokument", sp, ["Datei"], {"geaendert_von": "einem anderen Benutzer"})
+
     def erfassen(self, pfad, akte: str = "", rolle: str = "original", quelle=None, notiz: str = ""):
+        self._k.konflikte.clear()
         sp = self._k.server_pfad(pfad, akte)
         q = self._k.server_pfad(quelle, akte) if quelle else None
-        return self._v.aufrufen("archiv", "erfassen", [sp], {"akte": akte, "rolle": rolle, "quelle": q,
-                                                              "notiz": notiz})
+        erg = self._v.aufrufen("archiv", "erfassen", [sp], {"akte": akte, "rolle": rolle, "quelle": q,
+                                                            "notiz": notiz})
+        self._konflikt_melden()                          # gleichzeitig gespeichert → Konfliktkopie, Benutzer informieren
+        return erg
 
     def bearbeitet(self, pfad):
         e = self._k._eintrag_lokal(Path(pfad))
         if e:
-            sp, konflikt = self._k.zurueckschreiben(Path(pfad))
-            if konflikt:
-                raise pr.Konflikt("dokument", sp, ["Datei"], {
-                    "geaendert_von": "einem anderen Benutzer"}) from None
+            self._k.konflikte.clear()
+            self._k.zurueckschreiben(Path(pfad))
+            self._konflikt_melden()
             return None
         return self._v.aufrufen("archiv", "bearbeitet", [str(pfad)])
 
@@ -920,3 +976,47 @@ class FernDateien:
     def sperren(self, pfad: str, an: bool = True) -> str:
         e = self.k._eintrag_lokal(Path(pfad))
         return self.v.sperren(e["server"] if e else str(pfad), an)
+
+
+# --------------------------------------------------------------------------- automatische Suche (Client)
+def suchen(wartezeit: float = 2.0) -> list[dict]:
+    """Sucht BnX-Raptor-Server im Büronetz. → [{adresse, kanzlei, rechner, version}] (ohne Doppelte)."""
+    ziele = {"255.255.255.255", "127.0.0.1"}
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ziele.add(".".join(ip.split(".")[:3]) + ".255")      # gerichteter Broadcast (übliches /24-Netz)
+    except OSError:
+        pass
+    gefunden: dict[str, dict] = {}
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.settimeout(0.3)
+        for z in ziele:
+            with contextlib.suppress(OSError):
+                s.sendto(SUCH_ANFRAGE, (z, SUCH_PORT))
+        ende = time.time() + wartezeit
+        while time.time() < ende:
+            try:
+                daten, (ip, _) = s.recvfrom(4096)
+            except (socket.timeout, OSError):
+                continue
+            try:
+                d = json.loads(daten.decode("utf-8"))
+            except ValueError:
+                continue
+            if d.get("app") != "BnX-Raptor":
+                continue
+            schluessel = f"{d.get('rechner')}:{d.get('port')}"
+            haupt = d.get("ip") or ip
+            eintrag = gefunden.setdefault(schluessel, {
+                "adresse": f"http://{haupt}:{d.get('port')}", "ip": haupt, "alternativen": [],
+                "kanzlei": d.get("kanzlei") or "", "rechner": d.get("rechner") or "", "version": d.get("version") or ""})
+            alt = f"http://{ip}:{d.get('port')}"
+            if alt != eintrag["adresse"] and alt not in eintrag["alternativen"]:
+                eintrag["alternativen"].append(alt)
+    finally:
+        s.close()
+    return sorted(gefunden.values(), key=lambda x: (x["kanzlei"], x["rechner"]))

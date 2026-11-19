@@ -268,3 +268,38 @@ def test_json_roundtrip():
     r = netz.loads(netz.dumps(o))
     assert r["p"] == Path(r"C:\x\y.pdf") and r["k"].name == "Fiktiv" and r["b"] == b"\x00\x01" and r["t"] == [1, 2]
     assert base64
+
+
+def test_automatische_suche_findet_server(server):
+    d, adr, admin, tmp = server
+    from core.kanzlei import Kanzlei
+    d.objekte["kanzlei"].speichern(Kanzlei(name="Kanzlei Fiktiv"))
+    gefunden = [s for s in netz.suchen(1.5) if s["adresse"].endswith(f":{d.port}") or
+                any(a.endswith(f":{d.port}") for a in s["alternativen"])]
+    assert gefunden and gefunden[0]["kanzlei"] == "Kanzlei Fiktiv"
+    erreichbar = []
+    for a in [gefunden[0]["adresse"], *gefunden[0]["alternativen"]]:       # Dienst hört hier nur auf 127.0.0.1
+        try:
+            erreichbar.append(netz.Verbindung(a).ping()["kanzlei"])
+        except netz.VerbindungFehler:
+            pass
+    assert erreichbar == ["Kanzlei Fiktiv"]
+
+
+def test_konfliktkopie_beim_erfassen_wird_gemeldet(server):
+    d, adr, admin, tmp = server
+    ra, rk = _client(adr, "ra", "Anwalt-Passwort-1", tmp, "x1")
+    ra2, rk2 = _client(adr, "ra", "Anwalt-Passwort-1", tmp, "x2")
+    datei = tmp / "Scan.pdf"
+    datei.write_bytes(b"%PDF v1")
+    netz.FernArchiv(ra, rk).erfassen(datei, akte="K1")
+    sp = netz._Fern(ra, "archiv").liste(akte="K1")[0]["pfad"]
+    a, b = rk.lokal(sp, "K1"), rk2.lokal(sp, "K1")
+    a.write_bytes(b"%PDF Fassung 1")
+    netz.FernArchiv(ra, rk).erfassen(a, akte="K1")                   # wie Akten „bearbeiten“: erst erfassen
+    b.write_bytes(b"%PDF Fassung 2")
+    with pytest.raises(pr.Konflikt):
+        netz.FernArchiv(ra2, rk2).erfassen(b, akte="K1")
+    assert Path(sp).read_bytes() == b"%PDF Fassung 1"
+    namen = [x["name"] for x in netz._Fern(ra, "archiv").liste(akte="K1")]
+    assert any("_Konflikt_" in n for n in namen)

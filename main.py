@@ -51,6 +51,19 @@ def main() -> int:
     # Unterbrochene Wiederherstellung (Absturz/Stromausfall) → vorherigen Stand zurückschreiben
     from core.sicherung import offene_wiederherstellung_zuruecksetzen
     netz_modus = cfg.get("modus") or "einzelplatz"
+    # Neuer PC (noch keine Daten): gleich fragen – neue Kanzlei hier oder mit bestehender Kanzlei verbinden
+    if netz_modus == "einzelplatz" and not cfg.get("willkommen_erledigt") \
+            and not (ordner / "verlauf.sqlite").exists() and KanzleiStore(ordner).laden().ist_leer:
+        from core.config import einstellung_speichern
+        from ui.netz_ui import VerbindenDialog, Willkommen
+        w = Willkommen()
+        if w.exec() != w.Accepted:
+            return 0
+        einstellung_speichern("willkommen_erledigt", True)
+        if w.wahl == "verbinden":
+            if VerbindenDialog(None, cfg).exec() != VerbindenDialog.Accepted:
+                return 0
+            netz_modus = "client"
     zurueckgesetzt = netz_modus != "client" and offene_wiederherstellung_zuruecksetzen(ordner)
     if zurueckgesetzt:
         cfg = load_config()
