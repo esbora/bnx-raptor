@@ -45,6 +45,11 @@ def main() -> int:
     ordner = data_dir(cfg)
     from core.fehlertexte import protokoll_einrichten
     protokoll_einrichten(ordner)        # nur Fehlerdetails, keine Dokumentinhalte
+    # Unterbrochene Wiederherstellung (Absturz/Stromausfall) → vorherigen Stand zurückschreiben
+    from core.sicherung import offene_wiederherstellung_zuruecksetzen
+    zurueckgesetzt = offene_wiederherstellung_zuruecksetzen(ordner)
+    if zurueckgesetzt:
+        cfg = load_config()
     journal = Journal(ordner / "verlauf.sqlite")
     ctx = AppContext(cfg, KanzleiStore(ordner), journal)
     workflows = [wf(ctx) for wf in ALL_WORKFLOWS]
@@ -55,6 +60,10 @@ def main() -> int:
         win.anlagen_oeffnen(pfade)
     else:
         win.add_files(pfade)
+    if zurueckgesetzt:
+        QMessageBox.warning(win, "Wiederherstellung unterbrochen",
+                            "Eine Wiederherstellung wurde beim letzten Mal nicht abgeschlossen. Der vorherige Stand "
+                            "wurde automatisch wiederhergestellt – es sind keine Daten verloren gegangen.")
     if ctx.kanzlei.ist_leer:                      # ilk açılış: büro bilgileri iste
         win.kanzleidaten_bearbeiten(erster_start=True)
     return app.exec()

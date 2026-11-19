@@ -263,8 +263,17 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.akten_seite, "Akten")
         from .stammdaten_tab import MandantenTab, VersicherungenTab
         self.mandanten_tab = MandantenTab(ctx, self.akte_oeffnen)
+        self.b_sicherung = QPushButton(theme.icon("speichern", "titel", 16), "  Sicherung erstellen…")
+        self.b_sicherung.setToolTip("Sichert alle Mandanten, Akten, Versicherungen, das Adressbuch, den Verlauf, "
+                                    "die Dokumente und die Einstellungen in eine ZIP-Datei (z. B. auf einen USB-Stick)")
+        self.b_sicherung.clicked.connect(self.sicherung_erstellen)
+        self.b_wiederherstellen = QPushButton(theme.icon("verlauf", "titel", 16), "  Sicherung wiederherstellen…")
+        self.b_wiederherstellen.setToolTip("Stand aus einer Sicherung zurückholen (vorher wird automatisch eine "
+                                           "Sicherheitskopie angelegt)")
+        self.b_wiederherstellen.clicked.connect(self.sicherung_wiederherstellen)
         self.mandanten_seite = self._seite("Mandanten", "Personen und Firmen – mit ihren Akten. Änderungen werden "
-                                           "automatisch gespeichert.", self.mandanten_tab, rollen=True)
+                                           "automatisch gespeichert.", self.mandanten_tab, rollen=True,
+                                           knoepfe=[self.b_sicherung, self.b_wiederherstellen])
         self.tabs.addTab(self.mandanten_seite, "Mandanten")
         self.versicherungen_tab = VersicherungenTab(ctx, self.akte_oeffnen)
         self.versicherungen_seite = self._seite("Versicherungen", "Versicherer mit Anschrift und E-Mail-Adressen "
@@ -355,7 +364,16 @@ class MainWindow(QMainWindow):
             self.nav.blockSignals(False)
 
     # --- Seiten (0.4.0: Start, PDF-Editor, Einstellungen) ---
-    def _seite(self, titel: str, unter: str, inhalt: QWidget, zurueck: bool = False, rollen: bool = False) -> QWidget:
+    def sicherung_erstellen(self):
+        from .sicherung_ui import sicherung_erstellen
+        sicherung_erstellen(self, self.ctx)
+
+    def sicherung_wiederherstellen(self):
+        from .sicherung_ui import sicherung_wiederherstellen
+        sicherung_wiederherstellen(self, self.ctx)
+
+    def _seite(self, titel: str, unter: str, inhalt: QWidget, zurueck: bool = False, rollen: bool = False,
+               knoepfe: list | None = None) -> QWidget:
         w = QWidget()
         w.setObjectName("seite")
         lay = QVBoxLayout(w)
@@ -368,6 +386,8 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda: self.tabs.setCurrentWidget(self.start_seite))
             kopf.addWidget(b)
         kopf.addWidget(theme.ueberschrift(titel, "h1"), 1)
+        for k in knoepfe or []:
+            kopf.addWidget(k)
         lay.addLayout(kopf)
         if unter:
             lay.addWidget(theme.rolle(QLabel(unter), "gedimmt"))
