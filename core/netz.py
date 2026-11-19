@@ -859,9 +859,15 @@ class Arbeitskopien:
             return self.server_pfad(p), False
         erg = self.v.datei_senden(p.read_bytes(), p.name, ersetzt=e["server"], basis_sha=e["sha"])
         if erg.get("konflikt"):
-            # Eigene Fassung liegt jetzt als Konfliktkopie auf dem Server; Arbeitskopie zeigt künftig darauf
-            e["server"] = erg["pfad"]
+            # Eigene Fassung liegt als Konfliktkopie auf dem Server: lokal unter deren Namen ablegen; die
+            # Arbeitskopie des Originals gilt als unverändert und wird beim nächsten Öffnen aktualisiert.
+            kopie = p.with_name(Path(erg["pfad"]).name)
+            shutil.copy2(p, kopie)
+            self.index[_nc(kopie)] = {"lokal": str(kopie), "server": erg["pfad"], "sha": erg["sha"]}
+            e["sha"] = _sha_datei(p)
             self.konflikte.append(erg["pfad"])
+            self._speichern()
+            return erg["pfad"], True
         e["sha"] = erg["sha"]
         self._speichern()
         return erg["pfad"], bool(erg.get("konflikt"))

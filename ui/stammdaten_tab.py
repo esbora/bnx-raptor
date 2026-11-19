@@ -202,8 +202,19 @@ class _StammSeite(QWidget):
             w.setCurrentIndex(max(w.findData(v), 0))
         self._laedt = False
 
-    def _sicher_speichern(self, fn) -> bool:
-        """fn(geaendert, basis). True = gespeichert (oder nichts zu tun)."""
+    def _sicher_speichern(self, fn, _intern: bool = False) -> bool:
+        """fn(geaendert, basis). True = gespeichert (oder nichts zu tun). Nie verschachtelt: Während ein
+        Vergleichsfenster offen ist, lösen weitere Feldwechsel kein zweites Speichern aus."""
+        if getattr(self, "_im_speichern", False) and not _intern:
+            return False
+        self._im_speichern = True
+        try:
+            return self._sicher_speichern_innen(fn)
+        finally:
+            if not _intern:
+                self._im_speichern = False
+
+    def _sicher_speichern_innen(self, fn) -> bool:
         geaendert = self._ungespeichert()
         if not geaendert:
             self._offen = False
@@ -240,12 +251,12 @@ class _StammSeite(QWidget):
         if dlg.ergebnis == "meine":
             for f in geaendert:                      # bewusst überschreiben: Basis = aktueller Stand
                 self._basis[f] = k.aktuell.get(f)
-            return self._sicher_speichern(fn)
+            return self._sicher_speichern(fn, _intern=True)
         if dlg.ergebnis == "aktuell":
             for f in k.felder:
                 self._feld_setzen(f, k.aktuell.get(f))
                 self._basis[f] = k.aktuell.get(f)
-            return self._sicher_speichern(fn)
+            return self._sicher_speichern(fn, _intern=True)
         self._offen = False
         theme.status_setzen(self.l_status, "warn", "Nicht gespeichert – gleichzeitige Änderung offen. Ihre Eingabe "
                                                    "steht weiter im Formular.")
@@ -443,8 +454,18 @@ class MandantenTab(_StammSeite):
         self._akte_felder_fuellen()
         self._gespeichert()
 
-    def _akte_sicher(self, ref: str, feld: str, wert: str, basis) -> bool:
+    def _akte_sicher(self, ref: str, feld: str, wert: str, basis, _intern: bool = False) -> bool:
         """Ein Akten-Feld speichern – mit Konfliktprüfung und ohne Datenverlust bei fehlender Verbindung."""
+        if getattr(self, "_im_speichern", False) and not _intern:
+            return False
+        self._im_speichern = True
+        try:
+            return self._akte_sicher_innen(ref, feld, wert, basis)
+        finally:
+            if not _intern:
+                self._im_speichern = False
+
+    def _akte_sicher_innen(self, ref: str, feld: str, wert: str, basis) -> bool:
         st = self.ctx.stammdaten
         try:
             st.akte_setzen(ref, _basis={feld: basis}, **{feld: wert})
@@ -454,7 +475,7 @@ class MandantenTab(_StammSeite):
             dlg = KonfliktDialog(self, k, {feld: wert})
             dlg.exec()
             if dlg.ergebnis == "meine":
-                return self._akte_sicher(ref, feld, wert, k.aktuell.get(feld))
+                return self._akte_sicher(ref, feld, wert, k.aktuell.get(feld), _intern=True)
             if dlg.ergebnis == "aktuell":
                 self.anzeigen_akten()
                 return False

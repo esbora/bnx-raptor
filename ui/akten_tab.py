@@ -596,7 +596,17 @@ class AktenTab(QWidget):
         theme.status_setzen(self.l_gespeichert, "ok", "Gespeichert")
         self._meta_setzen(meta_text(st.akte(ref)))
 
-    def _akte_sicher(self, ref: str, werte: dict, basis: dict | None = None) -> bool:
+    def _akte_sicher(self, ref: str, werte: dict, basis: dict | None = None, _intern: bool = False) -> bool:
+        if getattr(self, "_im_speichern", False) and not _intern:
+            return False                            # Vergleichsfenster offen → kein zweites Speichern
+        self._im_speichern = True
+        try:
+            return self._akte_sicher_innen(ref, werte, basis)
+        finally:
+            if not _intern:
+                self._im_speichern = False
+
+    def _akte_sicher_innen(self, ref: str, werte: dict, basis: dict | None = None) -> bool:
         st = self.ctx.stammdaten
         basis = basis if basis is not None else {k: self._akte_basis.get(k) for k in werte if k != "mandant_name"}
         try:
@@ -606,7 +616,7 @@ class AktenTab(QWidget):
             dlg = KonfliktDialog(self, k, werte)
             dlg.exec()
             if dlg.ergebnis == "meine":
-                return self._akte_sicher(ref, werte, {f: k.aktuell.get(f) for f in basis})
+                return self._akte_sicher(ref, werte, {f: k.aktuell.get(f) for f in basis}, _intern=True)
             if dlg.ergebnis == "aktuell":
                 self.akte_anzeigen()
                 return False
