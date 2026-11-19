@@ -771,7 +771,7 @@ class Arbeitskopien:
     """Lokale Arbeitskopien der zentralen Dokumente. Merkt sich Server-Pfad und Prüfsumme beim Herunterladen,
     damit Änderungen mit Versionsprüfung zurückgeschrieben werden (nie stilles Überschreiben)."""
 
-    def __init__(self, v: Verbindung, ordner: Path):
+    def __init__(self, v: Verbindung, ordner: Path, direkt: bool = False):
         self.v = v
         self.ordner = Path(ordner)
         self.ordner.mkdir(parents=True, exist_ok=True)
@@ -780,7 +780,7 @@ class Arbeitskopien:
             self.index: dict[str, dict] = json.loads(self.index_datei.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.index = {}
-        self.direkt = v.lokal                            # Server-Rechner: Dateien liegen hier
+        self.direkt = direkt                             # nur der Server-Rechner arbeitet direkt auf den Dateien
         self.konflikte: list[str] = []                   # beim Zurückschreiben entstandene Konfliktkopien
         self.in_bearbeitung: set[str] = set()            # gerade in Word/PDF-Editor geöffnete Arbeitskopien
 

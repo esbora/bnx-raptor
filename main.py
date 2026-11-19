@@ -97,7 +97,7 @@ def main() -> int:
         b = verbindung.benutzer or {}
         pr.setzen(pr.Benutzer(b.get("name", ""), b.get("rolle", ""), b.get("anzeigename") or ""), standard=True)
         kopien_ordner = ordner / ("Arbeitskopien" if netz_modus == "client" else "Arbeitskopien_Server")
-        kopien = netz.Arbeitskopien(verbindung, kopien_ordner)
+        kopien = netz.Arbeitskopien(verbindung, kopien_ordner, direkt=netz_modus == "server")
         journal = netz.FernJournal(verbindung, kopien)
         ctx = AppContext(cfg, netz.FernKanzlei(verbindung, kopien), journal, verbindung=verbindung, kopien=kopien)
     else:
