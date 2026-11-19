@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from core.config import ConfigFehler, config_pfad_setzen, data_dir, load_config
 from core.journal import Journal
@@ -57,11 +57,11 @@ def main() -> int:
         from core.config import einstellung_speichern
         from ui.netz_ui import VerbindenDialog, Willkommen
         w = Willkommen()
-        if w.exec() != w.Accepted:
+        if w.exec() != QDialog.Accepted:
             return 0
         einstellung_speichern("willkommen_erledigt", True)
         if w.wahl == "verbinden":
-            if VerbindenDialog(None, cfg).exec() != VerbindenDialog.Accepted:
+            if VerbindenDialog(None, cfg).exec() != QDialog.Accepted:
                 return 0
             netz_modus = "client"
     zurueckgesetzt = netz_modus != "client" and offene_wiederherstellung_zuruecksetzen(ordner)
