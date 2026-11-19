@@ -162,16 +162,18 @@ class AktenTab(QWidget):
         rl = QVBoxLayout(rechts)
         rl.setContentsMargins(8, 0, 0, 0)
         self.titel = theme.ueberschrift("Keine Akte ausgewählt", "h2")
+        # Titel, „Erstellt/geändert von …“ und Änderungsverlauf in EINER Zeile (Platz für den Verlauf darunter)
         tkopf = QHBoxLayout()
-        tkopf.addWidget(self.titel, 1)
+        tkopf.addWidget(self.titel)
+        self.l_meta = theme.rolle(QLabel(""), "gedimmt")
+        self.l_meta.setAccessibleName("Erstellt und geändert")
+        tkopf.addWidget(self.l_meta, 1)
         self.b_aenderungen = QPushButton("Änderungsverlauf…")
+        theme.rolle(self.b_aenderungen, "link")
         self.b_aenderungen.setToolTip("Wer hat wann was an dieser Akte geändert?")
         self.b_aenderungen.clicked.connect(self.aenderungsverlauf_zeigen)
         tkopf.addWidget(self.b_aenderungen)
         rl.addLayout(tkopf)
-        self.l_meta = theme.rolle(QLabel(""), "gedimmt")
-        self.l_meta.setAccessibleName("Erstellt und geändert")
-        rl.addWidget(self.l_meta)
         self._akte_basis: dict = {}
         self._offen = False
         self._nur_liste = False
@@ -419,6 +421,12 @@ class AktenTab(QWidget):
             self.f_versicherer.showPopup()
         self.akte_speichern()
 
+    def _meta_setzen(self, text: str):
+        self.l_meta.setToolTip(text)
+        kurz = text.replace("Zuletzt geändert", "geändert")
+        fm = self.l_meta.fontMetrics()
+        self.l_meta.setText(fm.elidedText(kurz, Qt.ElideRight, max(self.l_meta.width(), 260)))
+
     def aenderungsverlauf_zeigen(self):
         ref = self.aktuelle_referenz()
         if not ref or ref == OHNE_AKTE:
@@ -487,7 +495,7 @@ class AktenTab(QWidget):
         self._kontakte_zeigen()
         self.f_notiz.setText(akte["notiz"])
         self.l_gespeichert.setText("Änderungen werden automatisch gespeichert.")
-        self.l_meta.setText(meta_text(akte))
+        self._meta_setzen(meta_text(akte))
         self._akte_basis = {k: akte.get(k) for k in AKTE_FELDER}
         self._akte_basis["versicherer_email"] = akte.get("versicherer_email") or ""
         self._offen = False
@@ -586,7 +594,7 @@ class AktenTab(QWidget):
             self.f_versicherung.setItemData(i, vid)
             self._laedt = False
         theme.status_setzen(self.l_gespeichert, "ok", "Gespeichert")
-        self.l_meta.setText(meta_text(st.akte(ref)))
+        self._meta_setzen(meta_text(st.akte(ref)))
 
     def _akte_sicher(self, ref: str, werte: dict, basis: dict | None = None) -> bool:
         st = self.ctx.stammdaten
