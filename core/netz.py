@@ -368,12 +368,16 @@ class _Handler(BaseHTTPRequestHandler):
                 with d.lock:
                     salz, it = d.benutzerverwaltung.anmeldedaten(name)
                 nonce = secrets.token_hex(16)
-                d.nonces[name.lower()] = (nonce, time.time())
+                jetzt = time.time()
+                for alt in [k for k, (_, z) in d.nonces.items() if jetzt - z > 120]:
+                    d.nonces.pop(alt, None)                   # abgelaufene Anmeldeversuche entfernen
+                d.nonces[nonce] = (name.lower(), jetzt)       # je Versuch eigener Schlüssel (mehrere PCs gleichzeitig)
                 return self._ok({"salz": salz, "iterationen": it, "nonce": nonce})
             if pfad == "/anmelden/ende":
                 name = str(meta.get("name", ""))
-                nonce, t = d.nonces.pop(name.lower(), ("", 0))
-                if not nonce or time.time() - t > 120 or nonce != meta.get("nonce"):
+                nonce = str(meta.get("nonce", ""))
+                wer, t = d.nonces.pop(nonce, ("", 0))
+                if not nonce or wer != name.lower() or time.time() - t > 120:
                     return self._fehler("anmeldung", "Anmeldung abgelaufen – bitte erneut versuchen.")
                 with d.lock:
                     erg = d.benutzerverwaltung.verifizieren(name, nonce, str(meta.get("beweis", "")))

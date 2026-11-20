@@ -363,3 +363,16 @@ def test_nachrichten_senden_lesen_rechte_und_keine_doppelung(server):
     zeilen = con.execute("SELECT text, gelesen FROM nachrichten ORDER BY id").fetchall()
     con.close()
     assert len(zeilen) == 2 and zeilen[0][1]
+
+
+def test_gleichzeitige_anmeldung_desselben_benutzers(server):
+    d, adr, admin, tmp = server
+    a, b = netz.Verbindung(adr), netz.Verbindung(adr)
+    sa = a._json("/anmelden/start", {"name": "anna"}, signiert=False)[0]
+    sb = b._json("/anmelden/start", {"name": "anna"}, signiert=False)[0]      # zweiter PC fast gleichzeitig
+    from core import benutzer as bn
+    for v, s in ((a, sa), (b, sb)):
+        k = bn.ableiten("Sekretariat-1", s["salz"], int(s["iterationen"]))
+        erg, _ = v._json("/anmelden/ende", {"name": "anna", "nonce": s["nonce"], "beweis": bn.beweis(k, s["nonce"])},
+                         signiert=False)
+        assert erg["benutzer"]["name"] == "anna"
