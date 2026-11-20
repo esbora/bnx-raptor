@@ -297,9 +297,22 @@ class MainWindow(QMainWindow):
         self.nav.setIconSize(QSize(20, 20))
         self._nav_seiten = [self.start_seite, self.anlagen_huelle, self.pdf_seite, self.akten_seite,
                             self.mandanten_seite, self.versicherungen_seite, self.einst_seite]
-        for i, (text, ic) in enumerate((("Start", "start"), ("Anlagen", "anlagen"), ("PDF-Editor", "pdf"),
-                                        ("Akten", "akten"), ("Mandanten", "kanzlei"), ("Versicherungen", "adressbuch"),
-                                        ("Einstellungen", "einstellungen"))):
+        eintraege = [("Start", "start"), ("Anlagen", "anlagen"), ("PDF-Editor", "pdf"), ("Akten", "akten"),
+                     ("Mandanten", "kanzlei"), ("Versicherungen", "adressbuch"), ("Einstellungen", "einstellungen")]
+        self.nachrichten_tab = None
+        if ctx.mehrbenutzer:                       # Büro-Nachrichten nur, wenn mehrere Arbeitsplätze verbunden sind
+            from .nachrichten_ui import Benachrichtigung, NachrichtenTab
+            self.nachrichten_tab = NachrichtenTab(ctx, self._nachricht_akte, self._nachricht_mandant)
+            self.nachrichten_seite = self._seite("Nachrichten", "Kurze Nachrichten im Büro – auch zu einer Akte.",
+                                                 self.nachrichten_tab)
+            self.tabs.addTab(self.nachrichten_seite, "Nachrichten")
+            self._nav_seiten.insert(6, self.nachrichten_seite)
+            eintraege.insert(6, ("Nachrichten", "mail"))
+            self.nachrichten_tab.ungelesen_geaendert.connect(self._ungelesen_anzeigen)
+            self.benachrichtigung = Benachrichtigung(self)
+            self.benachrichtigung.geklickt.connect(self.gespraech_oeffnen)
+            self.akten_tab.nachricht_senden = self._nachricht_zur_akte
+        for i, (text, ic) in enumerate(eintraege):
             it = QListWidgetItem(theme.icon(ic, "titel"), text)
             it.setToolTip(f"{text} (Strg+{i + 1})")
             self.nav.addItem(it)
@@ -330,6 +343,9 @@ class MainWindow(QMainWindow):
             self.beobachter = Beobachter(ctx.verbindung)
             self.beobachter.neu.connect(self._von_aussen)
             self.beobachter.neu_geladen.connect(self._nach_wiederherstellung)
+            self.beobachter.nachrichten.connect(self._nachrichten_status)
+            self.beobachter.wieder_online.connect(lambda: self.nachrichten_tab and
+                                                  self.nachrichten_tab.ausstehende_senden())
             ll.addWidget(StatusLeiste(self.beobachter))
         ver = QLabel(f"Version {__version__} · Pilot")
         ver.setObjectName("marke_klein")
@@ -396,6 +412,103 @@ class MainWindow(QMainWindow):
         if eintraege:
             letzter = eintraege[-1]
             theme.status_setzen(self.status, None, f"Aktualisiert: {letzter.get('benutzer')} – {letzter.get('text')}")
+
+    # --- Nachrichten -----------------------------------------------------------------
+    def _ungelesen_anzeigen(self, n: int):
+        if self.nachrichten_tab is None:
+            return
+        i = self._nav_seiten.index(self.nachrichten_seite)
+        self.nav.item(i).setText(f"Nachrichten  ● {n}" if n else "Nachrichten")
+
+    def _nachrichten_status(self, st: dict):
+        if self.nachrichten_tab is None:
+            return
+        self._ungelesen_anzeigen(st["ungelesen"])
+        offen = self.tabs.currentWidget() is self.nachrichten_seite and self.isActiveWindow()
+        if st["neu"] and not st.get("erst"):
+            letzte = st["neu"][-1]
+            self.nachrichten_tab.laden()
+            if offen and self.nachrichten_tab.partner == letzte["absender"]:
+                return                                   # Gespräch ist offen und sichtbar – kein Hinweis nötig
+            self._hinweis_neue_nachricht(letzte["absender"], letzte["absender_anzeige"])
+        elif st.get("erst") and st["ungelesen"]:
+            letzte = st["neu"][-1] if st["neu"] else None
+            self.nachrichten_tab.laden()
+            if letzte:
+                self._hinweis_neue_nachricht(letzte["absender"], letzte["absender_anzeige"])
+        elif offen:
+            self.nachrichten_tab._verlauf_laden()        # Status „Gelesen“ der eigenen Nachrichten aktualisieren
+
+    def _hinweis_neue_nachricht(self, absender: str, anzeige: str):
+        from PySide6.QtWidgets import QApplication, QSystemTrayIcon
+        self.benachrichtigung.zeigen(absender, anzeige)
+        QApplication.alert(self, 0)                      # Taskleiste blinkt
+        if self.cfg.get("nachrichten_ton", True):
+            QApplication.beep()
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            if not hasattr(self, "_tray"):
+                self._tray = QSystemTrayIcon(self.windowIcon() if not self.windowIcon().isNull()
+                                             else theme.icon("mail", "primaer"), self)
+                self._tray.setToolTip("BnX-Raptor")
+                self._tray.messageClicked.connect(lambda: self.gespraech_oeffnen(self._tray_partner))
+                self._tray.show()
+            self._tray_partner = absender
+            self._tray.showMessage(anzeige, "Neue Nachricht", QSystemTrayIcon.Information, 8000)
+
+    def gespraech_oeffnen(self, partner: str):
+        if self.nachrichten_tab is None:
+            return
+        self.showNormal() if self.isMinimized() else None
+        self.activateWindow()
+        self.tabs.setCurrentWidget(self.nachrichten_seite)
+        self.nav.setCurrentRow(self._nav_seiten.index(self.nachrichten_seite))
+        self.nachrichten_tab.laden()
+        self.nachrichten_tab.gespraech_oeffnen(partner)
+
+    def _nachricht_akte(self, ref: str):
+        akte = self.ctx.stammdaten.akte(ref)            # Rechte/Existenz prüft der Server
+        if not akte:
+            QMessageBox.information(self, "Akte", f"Die Akte „{ref}“ gibt es nicht (mehr) oder sie ist für Sie nicht "
+                                    "zugänglich.")
+            return
+        self.akte_oeffnen(ref)
+        self.nav.setCurrentRow(self._nav_seiten.index(self.akten_seite))
+
+    def _nachricht_mandant(self, mid: int):
+        if not self.ctx.stammdaten.mandant(mid):
+            QMessageBox.information(self, "Mandant", "Diesen Mandanten gibt es nicht (mehr).")
+            return
+        self.tabs.setCurrentWidget(self.mandanten_seite)
+        self.nav.setCurrentRow(self._nav_seiten.index(self.mandanten_seite))
+        tab = self.mandanten_tab
+        tab.suche.clear()
+        tab.laden()
+        for i in range(tab.liste.count()):
+            if tab.liste.item(i).data(Qt.UserRole) == mid:
+                tab.liste.setCurrentRow(i)
+                break
+
+    def _nachricht_zur_akte(self, ref: str):
+        from .nachrichten_ui import AkteNachrichtDialog
+        akte = self.ctx.stammdaten.akte(ref) or {}
+        mandant = self.ctx.stammdaten.mandant(akte["mandant_id"]) if akte.get("mandant_id") else None
+        try:
+            kontakte = self.ctx.nachrichten.kontakte()
+        except Exception as e:  # noqa: BLE001
+            from .netz_ui import ausnahme_behandeln
+            if not ausnahme_behandeln(self, e):
+                raise
+            return
+        dlg = AkteNachrichtDialog(self, kontakte, ref, mandant)
+        if dlg.exec() != QDialog.Accepted or not dlg.text.toPlainText().strip():
+            return
+        an = dlg.an.currentData()
+        ok = self.nachrichten_tab.senden(akte=ref, mandant_id=mandant["id"] if mandant and dlg.cb_mandant.isChecked()
+                                         else None, text=dlg.text.toPlainText(), partner=an)
+        theme.status_setzen(self.akten_tab.l_gespeichert, "ok" if ok else "warn",
+                            f"Nachricht an {dlg.an.currentText()} gesendet." if ok else
+                            "Nachricht NICHT gesendet – keine Verbindung. Sie wird automatisch erneut gesendet.")
+        self.nachrichten_tab.laden()
 
     def _nach_wiederherstellung(self):
         self._von_aussen([])
@@ -541,6 +654,11 @@ class MainWindow(QMainWindow):
         self.cb_grosse_vorschau.setChecked(bool(self.cfg.get("grosse_vorschau", True)))
         self.cb_grosse_vorschau.toggled.connect(self._grosse_vorschau_setzen)
         lay.addWidget(self.cb_grosse_vorschau)
+        if self.ctx.mehrbenutzer:
+            self.cb_ton = QCheckBox("Ton bei neuen Nachrichten")
+            self.cb_ton.setChecked(bool(self.cfg.get("nachrichten_ton", True)))
+            self.cb_ton.toggled.connect(self._ton_setzen)
+            lay.addWidget(self.cb_ton)
         from .netz_ui import NetzEinstellungen
         nkopf = QHBoxLayout()
         nkopf.addWidget(theme.ueberschrift("Netzwerk (mehrere Arbeitsplätze)", "h2"), 1)
@@ -559,6 +677,11 @@ class MainWindow(QMainWindow):
         lay.addWidget(theme.ueberschrift("Verlauf", "h2"))
         lay.addWidget(self.verlauf_tab, 1)
         return self._seite("Einstellungen", "Kanzleidaten, Adressbuch, Programm und Verlauf.", inhalt)
+
+    def _ton_setzen(self, an: bool):
+        from core.config import einstellung_speichern
+        self.cfg["nachrichten_ton"] = bool(an)
+        einstellung_speichern("nachrichten_ton", bool(an))
 
     def _grosse_vorschau_setzen(self, an: bool):
         from core.config import einstellung_speichern

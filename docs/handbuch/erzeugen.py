@@ -253,15 +253,16 @@ sie. Die anderen Rechner verbinden sich über das Büronetz. Die Datenbank wird 
 geöffnet.</p>
 <div class='hinweis'><b class='fehler'>Wichtig:</b> Der Server-Rechner muss eingeschaltet sein und BnX-Raptor muss dort laufen, solange
 an anderen Arbeitsplätzen gearbeitet wird.</div>
-<ol><li><b>Server einrichten:</b> {ui('Einstellungen')} → Netzwerk → {ui('Server')} → {ui('Übernehmen und neu starten')}.
-Beim ersten Start den ersten Administrator anlegen. Fragt Windows, ob BnX-Raptor im privaten Netzwerk kommunizieren
-darf: erlauben. Unter {ui('Adresse für die anderen Rechner')} steht z. B. <span class='t'>http://192.168.1.20:47310</span>.
-Vorhandene Daten bleiben erhalten.</li>
+<ol><li><b>Hauptrechner:</b> {ui('Einstellungen')} → Netzwerk → {ui('Daten auf diesem PC bereitstellen')} →
+{ui('Bereitstellen und neu starten')} → ersten Administrator anlegen. Vorhandene Daten bleiben erhalten. Fragt Windows
+nach der Firewall: „Private Netzwerke“ anhaken → {ui('Zugriff zulassen')}. Die {ui('Verbindungsadresse')} (mit
+{ui('Kopieren')}) wird nur gebraucht, wenn die automatische Suche nichts findet.</li>
 <li><b>Benutzer anlegen:</b> {ui('Einstellungen')} → {ui('Benutzer verwalten…')} → {ui('Neuer Benutzer…')} (Rolle
 Sekretariat oder Rechtsanwalt, Anfangspasswort). Dort auch {ui('Rolle ändern…')}, {ui('Passwort zurücksetzen…')} und
 {ui('Deaktivieren / Aktivieren')}. Jeder kann sein Passwort unter {ui('Passwort ändern…')} ändern.</li>
-<li><b>Arbeitsplatz verbinden:</b> {ui('Einstellungen')} → Netzwerk → {ui('Mit Server verbinden')} → Adresse eintragen →
-{ui('Verbindung testen')} → {ui('Übernehmen und neu starten')} → mit eigenem Benutzernamen anmelden.</li></ol>
+<li><b>Jeder weitere PC – drei Schritte:</b> Programm öffnen → {ui('Mit bestehender Kanzlei verbinden')} (die Kanzlei
+wird im Büronetz automatisch gefunden) → {ui('Verbinden')} → mit eigenem Benutzernamen anmelden. Danach verbindet sich
+der PC bei jedem Start von selbst. Ausführlich mit Bildern: <span class='t'>Mehrbenutzer_Einrichtung_DE.pdf</span>.</li></ol>
 {tab(['Rolle', 'Darf'], [
     ['Administrator', 'alles, zusätzlich Benutzer, Verbindungseinstellungen, Sicherung und Wiederherstellung'],
     ['Sekretariat', 'Mandanten, Akten/Mandate und Versicherungen anlegen und ändern, Kontaktdaten, Dokumente hinzufügen; '

@@ -57,6 +57,7 @@ LESEN = {
     "adressbuch": {"alle", "treffer", "emails"},
     "kanzlei": {"laden", "logo_pfad"},
     "benutzer": {"liste"},
+    "nachrichten": {"kontakte", "verlauf", "nachricht", "status"},
 }
 SCHREIBEN = {
     "journal": {"add", "bearbeitet_setzen", "akte_speichern"},
@@ -67,6 +68,7 @@ SCHREIBEN = {
     "kanzlei": {"speichern", "logo_hochladen"},
     "benutzer": {"anlegen", "passwort_setzen", "rolle_setzen", "aktiv_setzen", "anzeigename_setzen",
                  "eigenes_passwort"},
+    "nachrichten": {"senden", "gelesen"},
 }
 
 
@@ -192,6 +194,8 @@ class Dienst:
         self.objekte = {"journal": self.journal, "stammdaten": Stammdaten(con, self.buch), "archiv": Archiv(con),
                         "adressbuch": self.buch, "kanzlei": _ServerKanzlei(KanzleiStore(self.daten)),
                         "benutzer": bn.Benutzerverwaltung(con)}
+        from core.nachrichten import Nachrichten
+        self.objekte["nachrichten"] = Nachrichten(con)
         self.prot = pr.Protokoll(con)
         self.sitzungen: dict[str, dict] = {}
         self.nonces: dict[str, tuple[str, float]] = {}

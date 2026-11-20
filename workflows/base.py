@@ -69,6 +69,16 @@ class AppContext:
         return self.kanzlei_store.laden()          # her seferinde güncel hali
 
     @property
+    def nachrichten(self):
+        """Büro-Nachrichten (nur Mehrbenutzerbetrieb)."""
+        if self.verbindung is None:
+            return None
+        if getattr(self, "_nachrichten", None) is None:
+            from core.netz import _Fern
+            self._nachrichten = _Fern(self.verbindung, "nachrichten")
+        return self._nachrichten
+
+    @property
     def mehrbenutzer(self) -> bool:
         return self.verbindung is not None
 

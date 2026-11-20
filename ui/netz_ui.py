@@ -308,6 +308,8 @@ class Beobachter(QObject):
     neu = Signal(list)              # Einträge anderer Benutzer
     neu_geladen = Signal()          # Wiederherstellung auf dem Server → alles neu laden
     status = Signal(str, str)       # art (ok|warn|fehler), Text
+    nachrichten = Signal(dict)      # {ungelesen, neu: [...], erst: bool}
+    wieder_online = Signal()
 
     def __init__(self, v: netz.Verbindung, intervall_ms: int = 3000):
         super().__init__()
@@ -316,6 +318,7 @@ class Beobachter(QObject):
         self.generation = None
         self.offline = False
         self._laeuft = False
+        self.nachrichten_seit = -1
         self.timer = QTimer(self)
         self.timer.setInterval(intervall_ms)
         self.timer.timeout.connect(self._anstossen)
@@ -347,6 +350,15 @@ class Beobachter(QObject):
         try:
             war_offline = self.offline
             self.offline = False
+            try:
+                st = self.v.aufrufen("nachrichten", "status", [max(self.nachrichten_seit, 0)])
+                erst = self.nachrichten_seit < 0
+                self.nachrichten_seit = st["hoechste_id"]
+                self.nachrichten.emit({**st, "erst": erst})
+            except Exception:  # noqa: BLE001 – Nachrichten sind Zusatz; Abfrage beim nächsten Mal
+                pass
+            if war_offline:
+                self.wieder_online.emit()
             if erg.get("wartung"):
                 self.status.emit("warn", erg["wartung"])
             else:

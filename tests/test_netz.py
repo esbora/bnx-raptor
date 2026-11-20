@@ -324,3 +324,42 @@ def test_geoeffnete_arbeitskopie_wird_nicht_ersetzt(server):
         netz.FernArchiv(ra2, rk2).bearbeitet(offen)                 # → Konfliktkopie statt Überschreiben
     netz.FernDateien(ra2, rk2).sperren(str(offen), False)
     assert Path(sp).read_bytes() == b"%PDF anderer Benutzer"
+
+
+def test_nachrichten_senden_lesen_rechte_und_keine_doppelung(server):
+    d, adr, admin, tmp = server
+    sek, _ = _client(adr, "anna", "Sekretariat-1", tmp, "n1")
+    ra, _ = _client(adr, "ra", "Anwalt-Passwort-1", tmp, "n2")
+    n_s, n_r = netz._Fern(sek, "nachrichten"), netz._Fern(ra, "nachrichten")
+    netz._Fern(sek, "stammdaten").akte_anlegen("0815/26")
+    m = n_s.senden("ra", "Mandant hat angerufen. Bitte zurückrufen.", "c-1", akte="0815/26")
+    wieder = n_s.senden("ra", "Mandant hat angerufen. Bitte zurückrufen.", "c-1", akte="0815/26")   # Wiederholung
+    assert wieder["id"] == m["id"] and len(n_r.verlauf("anna")) == 1
+    st = n_r.status(0)
+    assert st["ungelesen"] == 1 and st["neu"][0]["absender_anzeige"] == "Anna (Sekretariat)"
+    k = {x["name"]: x for x in n_r.kontakte()}
+    assert k["anna"]["ungelesen"] == 1 and k["anna"]["rolle_text"] == "Sekretariat" and "ra" not in k
+    assert n_s.verlauf("ra")[0]["gelesen"] == ""                   # noch nicht gelesen
+    v = n_r.verlauf("anna")
+    assert v[0]["akte"] == "0815/26" and not v[0]["von_mir"]
+    n_r.gelesen("anna", v[-1]["id"])
+    assert n_s.verlauf("ra")[0]["gelesen"] and n_r.status(0)["ungelesen"] == 0
+    n_r.senden("anna", "Erledigt, rufe gleich an.", "c-2")
+    assert [x["text"] for x in n_s.verlauf("ra")] == ["Mandant hat angerufen. Bitte zurückrufen.",
+                                                     "Erledigt, rufe gleich an."]
+    # Dritter Benutzer: sieht das Gespräch nicht, Einzelabruf wird abgelehnt
+    assert admin.aufrufen("nachrichten", "verlauf", ["anna"]) == []
+    with pytest.raises(Berechtigung):
+        admin.aufrufen("nachrichten", "nachricht", [m["id"]])
+    with pytest.raises(ValueError):
+        n_s.senden("anna", "an mich", "c-3")
+    # Sicherung enthält Nachrichten + Lesestatus
+    zip_daten, info = admin.sicherung_erstellen()
+    import io, zipfile
+    with zipfile.ZipFile(io.BytesIO(zip_daten)) as zf:
+        db = tmp / "kopie.sqlite"
+        db.write_bytes(zf.read("datenbank/verlauf.sqlite"))
+    con = sqlite3.connect(db)
+    zeilen = con.execute("SELECT text, gelesen FROM nachrichten ORDER BY id").fetchall()
+    con.close()
+    assert len(zeilen) == 2 and zeilen[0][1]

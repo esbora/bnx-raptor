@@ -269,6 +269,13 @@ class AktenTab(QWidget):
         knoepfe.addStretch(1)
         rl.addLayout(knoepfe)
         mails = QHBoxLayout()                    # zweite Zeile: passt auch bei 1180 px Fensterbreite
+        self.nachricht_senden = None             # vom Hauptfenster gesetzt (nur Mehrbenutzerbetrieb)
+        self.b_nachricht = QPushButton(theme.icon("mail", "titel", 16), "  Nachricht zur Akte…")
+        self.b_nachricht.setToolTip("Kurze Nachricht an eine Kollegin / einen Kollegen – mit Link zu dieser Akte")
+        self.b_nachricht.clicked.connect(lambda: self.nachricht_senden and self.aktuelle_referenz() not in ("", OHNE_AKTE)
+                                         and self.nachricht_senden(self.aktuelle_referenz()))
+        self.b_nachricht.setVisible(bool(getattr(ctx, "mehrbenutzer", False)))
+        mails.addWidget(self.b_nachricht)
         mails.addStretch(1)
         mails.addWidget(self.b_mandant)
         mails.addWidget(self.b_vers)
