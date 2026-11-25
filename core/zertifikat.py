@@ -227,6 +227,49 @@ def sicherstellen(ordner: Path, ips: list[str] | None = None) -> tuple[Path, Pat
     return cert, key, True
 
 
+SCANNER_MUSTER = [("Avast", r"avast"), ("AVG", r"\bavg\b"), ("Kaspersky", r"kaspersky"), ("ESET", r"\beset\b"),
+                  ("Bitdefender", r"bitdefender"), ("Norton", r"norton|symantec"), ("McAfee", r"mcafee"),
+                  ("Sophos", r"sophos"), ("G DATA", r"g ?data"), ("Avira", r"avira"), ("Trend Micro", r"trend ?micro"),
+                  ("Fortinet", r"fortinet|fortigate"), ("einem Virenscanner", r"web/mail shield|ssl filter|"
+                                                                          r"ssl scanning|https scanning")]
+
+
+def aussteller(cert_pem: bytes | str) -> str:
+    """Aussteller (Issuer) als Text – nur zur Anzeige/Erkennung."""
+    import re as _re
+    import ssl
+    import tempfile
+    with tempfile.NamedTemporaryFile("wb", suffix=".pem", delete=False) as f:
+        f.write(cert_pem if isinstance(cert_pem, bytes) else cert_pem.encode())
+        name = f.name
+    try:
+        d = ssl._ssl._test_decode_cert(name)                       # noqa: SLF001 – nur Anzeige
+    except Exception:  # noqa: BLE001
+        d = {}
+    finally:
+        Path(name).unlink(missing_ok=True)
+    _ = _re
+    return ", ".join("=".join(x) for r in d.get("issuer", ()) for x in r)
+
+
+def scanner(cert_pem: bytes | str) -> str:
+    """Name des Virenscanners/Filters, der die verschlüsselte Verbindung aufbricht und ein eigenes Zertifikat
+    vorlegt – oder ''. (Ein solches Zertifikat wird NIE akzeptiert.)"""
+    import re as _re
+    text = aussteller(cert_pem).lower()
+    for name, muster in SCANNER_MUSTER:
+        if _re.search(muster, text):
+            return name
+    return ""
+
+
+def scanner_text(name: str) -> str:
+    return (f"{name} prüft die verschlüsselte Verbindung zum Hauptrechner und legt dabei ein eigenes Zertifikat vor. "
+            "BnX-Raptor akzeptiert das aus Sicherheitsgründen nicht – es wurden keine Daten übertragen. Bitte im "
+            "Virenscanner eine Ausnahme für BnX-Raptor einrichten (z. B. „HTTPS-Prüfung/Web-Schutz: Ausnahme für "
+            "BnX-Raptor.exe“ oder für den Hauptrechner, Port 47310), dann erneut verbinden.")
+
+
 def details(cert_pem: bytes | str) -> dict:
     """Technische Angaben für „Details“ (über ssl._ssl._test_decode_cert, ohne Netzwerk)."""
     import ssl

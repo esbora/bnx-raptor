@@ -1,7 +1,7 @@
 (Textfassung von docs/Mehrbenutzer_Einrichtung_DE.pdf – maßgeblich ist das PDF mit Bildern)
 
 BnX-Raptor – mehrere Arbeitsplätze
-Kurzanleitung, Version 0.4.3 · Bildschirmfotos mit fiktiven Daten
+Kurzanleitung, Version 0.5.0 · Bildschirmfotos mit fiktiven Daten
 Wichtig: Der Hauptrechner stellt die gemeinsamen Daten bereit. Er muss eingeschaltet sein und
 BnX-Raptor muss dort geöffnet sein, solange an den anderen PCs gearbeitet wird.
 A) Hauptrechner (einmalig)
@@ -34,11 +34,15 @@ versuchen. Hilft das nicht: Windows-Firewall am Hauptrechner (siehe A3).
 Formular und sind nicht gespeichert. Sobald der Hauptrechner wieder da ist, wird
 automatisch gespeichert. Hat jemand dasselbe Feld inzwischen geändert, zeigt BnX-Raptor
 beide Fassungen zum Vergleich.
+•  „… prüft die verschlüsselte Verbindung …“: Ein Virenscanner (z. B. Avast-Web-Schutz)
+bricht die Verbindung auf. Es wird nichts übertragen. Im Virenscanner eine Ausnahme für BnX-
+Raptor.exe bzw. den Hauptrechner (Port 47310) einrichten – am Hauptrechner und an jedem
+Arbeitsplatz.
 •  Outlook-Entwürfe, Word-Umwandlung und Texterkennung laufen an dem PC, an dem
+
 gearbeitet wird.
 Die Verbindung im Büronetz ist mit TLS verschlüsselt. Der Hauptrechner erzeugt dafür einmalig
 ein eigenes Zertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der Kontrollcode vom
-
 Hauptrechner abgetippt; ändert sich das Zertifikat später, hält BnX-Raptor die Verbindung an und
 überträgt nichts. Nur im eigenen Büronetz verwenden – nicht über das Internet. Server und alle
 Arbeitsplätze müssen dieselbe Programmversion verwenden: für ein Update zuerst alle

@@ -38,10 +38,13 @@ ARBEIT = ".wiederherstellung"
 WIEDERHERGESTELLT = "Wiederhergestellt"
 AUSSCHLUSS_ORDNER = {SICHERHEITSKOPIEN.lower(), ARBEIT.lower()}
 # Spalten mit Datei-/Ordnerpfaden (werden bei der Wiederherstellung angepasst)
-PFAD_SPALTEN = [("dokumente", "pfad"), ("vorgaenge", "dokument"), ("vorgaenge", "ergebnis"), ("akten", "ordner")]
+PFAD_SPALTEN = [("dokumente", "pfad"), ("vorgaenge", "dokument"), ("vorgaenge", "ergebnis"), ("akten", "ordner"),
+                ("eingang_dateien", "pfad"), ("versand_dateien", "original_pfad"),     # 0.5
+                ("versand_dateien", "kopie_pfad")]
 ZAEHL_TABELLEN = [("mandanten", "Mandanten"), ("akten", "Akten/Mandate"), ("versicherungen", "Versicherungen"),
                   ("versicherer", "Adressbuch-Einträge"), ("dokumente", "Dokumente im Archiv"),
-                  ("vorgaenge", "Verlaufseinträge")]
+                  ("vorgaenge", "Verlaufseinträge"), ("eingaenge", "Posteingang"), ("aufgaben", "Aufgaben"),
+                  ("erwartungen", "Erwartete Unterlagen"), ("versand", "Versandnachweise")]
 PFLICHT_TABELLEN = {"vorgaenge", "akten"}
 BLOCK = 1024 * 1024
 

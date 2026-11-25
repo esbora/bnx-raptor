@@ -8,7 +8,8 @@ Bu dosya Claude Code için proje talimatıdır. Her oturumun başında okunur.
 Amacı avukatın tekrar eden yazışma işlerini tek ekrandan, birkaç tıklamayla yapmaktır.
 Program zamanla büyüyecek; her yeni iş ayrı bir **iş akışı (workflow) modülü** olarak eklenecek.
 
-Mevcut sürüm: `version.py` dosyasına bakın (0.4.3 = ilk kullanıma alınan sürüm, `main` + GitHub Release; 2026-11-25). Değişiklikler `CHANGELOG.md` dosyasında. Lisans: AGPL-3.0 (`LICENSE`).
+Mevcut sürüm: `version.py` dosyasına bakın (0.4.3 = ilk kullanıma alınan sürüm, `main` + GitHub Release; 0.5.0 yalnızca
+yerel, yayın onayı bekliyor – 2026-11-26). Değişiklikler `CHANGELOG.md` dosyasında. Lisans: AGPL-3.0 (`LICENSE`).
 
 ## 2. Dil ve iletişim
 
@@ -77,7 +78,15 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   zertifikat.py         0.4.3: kendi ürettiği RSA-2048 + X.509 sertifika (yalnızca stdlib), parmak izi, kontrol kodu
   benutzer.py           kullanıcılar/roller (PBKDF2), yetki kontrolü
   protokoll.py          Änderungsverlauf + eşzamanlı değişiklik çakışması
-  nachrichten.py        büro içi mesajlaşma (sunucu tarafı)
+  nachrichten.py        büro içi mesajlaşma (sunucu tarafı; 0.5: aufgabe_id bağlantısı)
+  posteingang.py        0.5 Kanzlei-Eingang: eingaenge/eingang_dateien/aufgaben, Akte önerisi (saf kural + dayanak),
+                        mükerrer önleme (client_id, Message-ID, SHA-256), görev yetkileri (sekreterlik kendine, avukat herkese)
+  posteingang_service.py 0.5 içe aktarma: .eml/.msg/dosya → Stueck → kopya + arşiv + eingang (kaynak değişmez)
+  unterlagen.py         0.5 Was fehlt?: erwartungen/erwartung_links/checklisten; „angefordert“ yalnızca bestätigt/manuell,
+                        „geprüft“ yalnızca avukat; şablon akteye KOPYALANIR
+  versand.py            0.5 Versandkontrolle (saf kontroller + Befund), metadata temizliği (kopyada, doğrulamalı),
+                        versand/versand_dateien (nachweis), gesendet_passt (SHA-256 ile eşleşme)
+  versand_service.py    0.5 ortak akış: kontrol → sabit kopyalar → entwurf_erstellen → nachweis (Anlagen/Akten/Erinnerung)
 workflows/
   base.py               AppContext(cfg, kanzlei_store, journal, adressbuch), Workflow, Field, Result
   __init__.py           ALL_WORKFLOWS kaydı
@@ -97,6 +106,9 @@ ui/
   nachrichten_ui.py     Nachrichten sayfası + bildirim
   sicherung_ui.py       Sicherung erstellen / wiederherstellen
   theme.py              açık tema (her zaman açık renk), QSS, Almanca Qt standart diyalogları
+  posteingang_ui.py     0.5 „Posteingang“ sayfası (öneri, hızlı işlemler, görevler) + başlangıç „Heute im Blick“
+  unterlagen_ui.py      0.5 Akte → „Offene Unterlagen & Antworten“, şablon yönetimi
+  versand_ui.py         0.5 VersandDialog (AnhangVorschau + kontrol satırı/ayrıntılar, TEK onay), Akte → „Versand“
 docs/handbuch/          kılavuz üreticileri (erzeugen.py, einrichtung.py) – kişisel üretici bilgisi YAZILMAZ
 docs/CRA/               yalnızca yerel (.gitignore): CRA belgeleri, hersteller.json (ad/e-posta) – GitHub'a gitmez
 ```
@@ -202,6 +214,12 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   geçmişinden de çıkarıldı. Kılavuzda kişisel üretici bilgisi yok; güvenlik bildirimi GitHub üzerinden.
   Bu PC'de Python'un Windows kök deposunda süresi dolmuş kök var → `ocr_bereitstellen.py` yerelde certifi ile
   çalıştırıldı (GitHub'ı etkilemez). `.venv`'de pymupdf eksikti → PDF testleri atlanıyordu; artık kurulu (159 test).
+- [x] 0.5.0 (yerel, 2026-11-26; proje sahibinin açık talimatı – 0.4 arayüz dondurmasının istisnası): Posteingang,
+  Aufgaben, Was fehlt?, Versandkontrolle + Versandnachweis. Kabul senaryosu çekirdek düzeyde gerçek TLS sunucusu + iki
+  istemciyle (aynı PC, WSL) `tests/test_posteingang_netz.py`. Windows'ta ağ testleri ÇALIŞMIYOR: Avast Web/Mail Shield
+  127.0.0.1 dahil TLS'yi araya girerek açıyor (kendi sertifikası) → BnX doğru şekilde reddediyor; istemci artık tarayıcıyı
+  adıyla söylüyor (`zertifikat.scanner`). Ağ testleri WSL'de: `C:\BnX-Test\wsl_lib\linux_test.sh` (pip yok; pytest
+  Windows venv'den, PyMuPDF manylinux wheel'i). Kılavuz ekranları: offscreen + `QT_QPA_FONTDIR=C:/Windows/Fonts`.
 - [ ] **Bekliyor:** Gerçek büro testi (`Pilot_0.4.0\BUEROTEST_CHECKLISTE.txt`), ikinci bilgisayar/SmartScreen, bağımsız PDF/A doğrulaması, yeni Outlook.
 - [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
@@ -217,8 +235,8 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 5. **Word düğmesi:** Word menü şeridinde, aktif belgeyi kaydedip programa gönderen bir makro.
 
 **Orta vade**
-6. **Wiedervorlage / süre takibi:** Taslakla birlikte Outlook'ta hatırlatma görevi oluşturulur; Akten'de cevap gelmeyen dosyalar vurgulanır.
-7. **Gönderildi kontrolü:** "Gesendete Elemente" klasörü taranır ve günlükte "gesendet" olarak işaretlenir.
+6. **Wiedervorlage / süre takibi:** (0.5: görevlerde „zu erledigen bis“ + Überfällig; Outlook görevi yok) Taslakla birlikte Outlook'ta hatırlatma görevi oluşturulur; Akten'de cevap gelmeyen dosyalar vurgulanır.
+7. ~~**Gönderildi kontrolü:**~~ 0.5 Versandnachweis (Gesendete Elemente SHA-256 eşleşmesi / manuel teyit). "Gesendete Elemente" klasörü taranır ve günlükte "gesendet" olarak işaretlenir.
 8. **Otomatik cevap kontrolü:** Program açıkken belirli aralıklarla Outlook taranır (onaylı içe aktarma yine kullanıcıda kalır).
 9. **Toplu işlem:** Birden fazla mektup tek bir kontrol tablosunda onaylanır.
 10. **Diğer iş akışları:** Müvekkile yazı, karşı tarafa yazı, mahkeme yazısı (beA hazırlığı).

@@ -266,6 +266,15 @@ class MainWindow(QMainWindow):
         self.akten_seite = self._seite("Akten", "Versicherungsakten: Schreiben, Antworten und E-Mails an Mandanten.",
                                        self.akten_tab, rollen=True)
         self.tabs.addTab(self.akten_seite, "Akten")
+        # 0.5: Kanzlei-Eingang (gemeinsamer Posteingang + Aufgaben)
+        from .posteingang_ui import PosteingangTab
+        self.posteingang_tab = PosteingangTab(ctx, self._akte_zeigen,
+                                              self._aufgabe_benachrichtigen if ctx.mehrbenutzer else None)
+        self.posteingang_seite = self._seite("Posteingang", "Gemeinsamer Eingang: E-Mails und Schriftstücke "
+                                             "übernehmen, Akte bestätigen, Aufgaben verteilen und erledigen.",
+                                             self.posteingang_tab)
+        self.tabs.addTab(self.posteingang_seite, "Posteingang")
+        self.posteingang_tab.geaendert.connect(lambda: self.uebersicht.laden())
         from .stammdaten_tab import MandantenTab, VersicherungenTab
         self.mandanten_tab = MandantenTab(ctx, self.akte_oeffnen)
         self.b_sicherung = QPushButton(theme.icon("speichern", "titel", 16), "  Sicherung erstellen…")
@@ -295,19 +304,21 @@ class MainWindow(QMainWindow):
         self.nav = QListWidget()
         self.nav.setObjectName("navigation")
         self.nav.setIconSize(QSize(20, 20))
-        self._nav_seiten = [self.start_seite, self.anlagen_huelle, self.pdf_seite, self.akten_seite,
-                            self.mandanten_seite, self.versicherungen_seite, self.einst_seite]
-        eintraege = [("Start", "start"), ("Anlagen", "anlagen"), ("PDF-Editor", "pdf"), ("Akten", "akten"),
-                     ("Mandanten", "kanzlei"), ("Versicherungen", "adressbuch"), ("Einstellungen", "einstellungen")]
+        self._nav_seiten = [self.start_seite, self.posteingang_seite, self.anlagen_huelle, self.pdf_seite,
+                            self.akten_seite, self.mandanten_seite, self.versicherungen_seite, self.einst_seite]
+        eintraege = [("Start", "start"), ("Posteingang", "brief"), ("Anlagen", "anlagen"), ("PDF-Editor", "pdf"),
+                     ("Akten", "akten"), ("Mandanten", "kanzlei"), ("Versicherungen", "adressbuch"),
+                     ("Einstellungen", "einstellungen")]
         self.nachrichten_tab = None
         if ctx.mehrbenutzer:                       # Büro-Nachrichten nur, wenn mehrere Arbeitsplätze verbunden sind
             from .nachrichten_ui import Benachrichtigung, NachrichtenTab
-            self.nachrichten_tab = NachrichtenTab(ctx, self._nachricht_akte, self._nachricht_mandant)
+            self.nachrichten_tab = NachrichtenTab(ctx, self._nachricht_akte, self._nachricht_mandant,
+                                                  self._aufgabe_zeigen)
             self.nachrichten_seite = self._seite("Nachrichten", "Kurze Nachrichten im Büro – auch zu einer Akte.",
                                                  self.nachrichten_tab)
             self.tabs.addTab(self.nachrichten_seite, "Nachrichten")
-            self._nav_seiten.insert(6, self.nachrichten_seite)
-            eintraege.insert(6, ("Nachrichten", "mail"))
+            self._nav_seiten.insert(7, self.nachrichten_seite)
+            eintraege.insert(7, ("Nachrichten", "mail"))
             self.nachrichten_tab.ungelesen_geaendert.connect(self._ungelesen_anzeigen)
             self.benachrichtigung = Benachrichtigung(self)
             self.benachrichtigung.geklickt.connect(self.gespraech_oeffnen)
@@ -378,6 +389,10 @@ class MainWindow(QMainWindow):
         w = self.tabs.widget(i)
         if w is self.akten_seite:
             self.akten_tab.laden()
+        elif w is self.posteingang_seite:
+            self.posteingang_tab.laden()
+        elif w is self.start_seite:
+            self.uebersicht.laden()
         elif w is self.mandanten_seite:
             self.mandanten_tab.laden()
         elif w is self.versicherungen_seite:
@@ -404,11 +419,15 @@ class MainWindow(QMainWindow):
 
     def _von_aussen(self, eintraege: list):
         """Andere Benutzer haben etwas geändert → Listen aktualisieren, ungespeicherte Eingaben bleiben."""
-        for tab in (self.mandanten_tab, self.versicherungen_tab, self.akten_tab):
+        for tab in (self.mandanten_tab, self.versicherungen_tab, self.akten_tab, self.posteingang_tab):
             try:
                 tab.von_aussen_aktualisieren()
             except Exception:  # noqa: BLE001 – keine Verbindung o. Ä.: beim nächsten Mal
                 pass
+        try:
+            self.uebersicht.laden()
+        except Exception:  # noqa: BLE001
+            pass
         if eintraege:
             letzter = eintraege[-1]
             theme.status_setzen(self.status, None, f"Aktualisiert: {letzter.get('benutzer')} – {letzter.get('text')}")
@@ -464,6 +483,37 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(self._nav_seiten.index(self.nachrichten_seite))
         self.nachrichten_tab.laden()
         self.nachrichten_tab.gespraech_oeffnen(partner)
+
+    # --- 0.5: Posteingang / Aufgaben ------------------------------------------------
+    def _akte_zeigen(self, ref: str):
+        self.akte_oeffnen(ref)
+        self.nav.setCurrentRow(self._nav_seiten.index(self.akten_seite))
+
+    def _akte_zeigen_unterlagen(self, ref: str):
+        self._akte_zeigen(ref)
+        self.akten_tab.akte_bereich_zeigen("unterlagen")
+
+    def _ansicht_oeffnen(self, ansicht: str):
+        if not ansicht:                                   # „Erwartete Unterlagen“ → Akten
+            self.nav.setCurrentRow(self._nav_seiten.index(self.akten_seite))
+            return
+        self.nav.setCurrentRow(self._nav_seiten.index(self.posteingang_seite))
+        self.posteingang_tab.ansicht_setzen(ansicht)
+
+    def _aufgabe_zeigen(self, aid: int):
+        self.nav.setCurrentRow(self._nav_seiten.index(self.posteingang_seite))
+        self.posteingang_tab.aufgabe_zeigen(aid)
+
+    def _aufgabe_benachrichtigen(self, empfaenger: str, text: str, akte: str, aufgabe_id: int) -> bool:
+        """Büro-Nachricht mit Link zur Aufgabe. Gelesen ≠ erledigt. Gleiche Kennung → nie doppelt."""
+        try:
+            self.ctx.nachrichten.senden(empfaenger, text, f"aufgabe-{aufgabe_id}-{empfaenger.lower()}", akte=akte,
+                                        aufgabe_id=aufgabe_id)
+        except Exception:  # noqa: BLE001 – Aufgabe ist gespeichert; Hinweis kommt beim nächsten Mal
+            return False
+        if self.nachrichten_tab is not None:
+            self.nachrichten_tab.laden()
+        return True
 
     def _nachricht_akte(self, ref: str):
         akte = self.ctx.stammdaten.akte(ref)            # Rechte/Existenz prüft der Server
@@ -602,6 +652,12 @@ class MainWindow(QMainWindow):
         hl.addLayout(links, 3)
         hl.addWidget(theme.SchriftsatzGrafik(), 2)
         lay.addWidget(haupt, 3)
+        # 0.5: Heute im Blick – eigene Aufgaben, erwartete Unterlagen, Überfälliges
+        from .posteingang_ui import UebersichtKarte
+        lay.addWidget(theme.ueberschrift("Heute im Blick", "h2"))
+        self.uebersicht = UebersichtKarte(self.ctx, self._ansicht_oeffnen, self._akte_zeigen_unterlagen,
+                                          self._aufgabe_zeigen)
+        lay.addWidget(self.uebersicht, 2)
         lay.addWidget(theme.ueberschrift("Weitere Aufgaben", "h2"))
         reihe = QHBoxLayout()
         reihe.setSpacing(16)

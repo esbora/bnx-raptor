@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS nachrichten (
 CREATE UNIQUE INDEX IF NOT EXISTS ix_nachrichten_client ON nachrichten(absender, client_id);
 CREATE INDEX IF NOT EXISTS ix_nachrichten_paar ON nachrichten(absender, empfaenger);
 """
+SPALTEN = [("aufgabe_id", "INTEGER")]                 # 0.5: Nachricht verweist auf eine Aufgabe
 MAX_LAENGE = 8000
 
 
@@ -35,6 +36,10 @@ class Nachrichten:
     def __init__(self, con: sqlite3.Connection):
         self.con = con
         self.con.executescript(SCHEMA)
+        vorhanden = {r[1] for r in self.con.execute("PRAGMA table_info(nachrichten)")}
+        for spalte, typ in SPALTEN:
+            if spalte not in vorhanden:
+                self.con.execute(f"ALTER TABLE nachrichten ADD COLUMN {spalte} {typ}")
         self.con.commit()
 
     # --- Hilfen -----------------------------------------------------------------
@@ -88,7 +93,8 @@ class Nachrichten:
         return sorted(out, key=lambda x: (x["letzte_zeit"] == "", "" if not x["letzte_zeit"] else
                                           "".join(chr(255 - ord(c)) for c in x["letzte_zeit"]), x["anzeigename"].lower()))
 
-    def senden(self, empfaenger: str, text: str, client_id: str, akte: str = "", mandant_id: int | None = None) -> dict:
+    def senden(self, empfaenger: str, text: str, client_id: str, akte: str = "", mandant_id: int | None = None,
+               aufgabe_id: int | None = None) -> dict:
         ich = self._ich()
         text = (text or "").strip()
         if not text:
@@ -106,8 +112,9 @@ class Nachrichten:
         if vorhanden:                                       # erneuter Sendeversuch → keine Doppelung
             return self._aufbereiten(vorhanden[0])
         cur = self.con.execute(
-            "INSERT INTO nachrichten (absender, empfaenger, text, zeit, akte, mandant_id, client_id) "
-            "VALUES (?,?,?,?,?,?,?)", (ich, b["name"], text, _jetzt(), akte or "", mandant_id, client_id))
+            "INSERT INTO nachrichten (absender, empfaenger, text, zeit, akte, mandant_id, client_id, aufgabe_id) "
+            "VALUES (?,?,?,?,?,?,?,?)", (ich, b["name"], text, _jetzt(), akte or "", mandant_id, client_id,
+                                        aufgabe_id))
         self.con.commit()
         return self.nachricht(int(cur.lastrowid))
 

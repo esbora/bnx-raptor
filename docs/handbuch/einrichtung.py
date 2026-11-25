@@ -83,6 +83,7 @@ automatisch gefunden → {ui('Verbinden')} → den <b>Kontrollcode vom Hauptrech
 <li><b>„Keine Verbindung zum Server“</b> links unten während der Arbeit: Eingaben bleiben im Formular und sind
 <b>nicht gespeichert</b>. Sobald der Hauptrechner wieder da ist, wird automatisch gespeichert. Hat jemand dasselbe
 Feld inzwischen geändert, zeigt BnX-Raptor beide Fassungen zum Vergleich.</li>
+<li><b>„… prüft die verschlüsselte Verbindung …“</b>: Ein Virenscanner (z. B. Avast-Web-Schutz) bricht die Verbindung auf. Es wird nichts übertragen. Im Virenscanner eine Ausnahme für BnX-Raptor.exe bzw. den Hauptrechner (Port 47310) einrichten – am Hauptrechner und an jedem Arbeitsplatz.</li>
 <li>Outlook-Entwürfe, Word-Umwandlung und Texterkennung laufen an dem PC, an dem gearbeitet wird.</li></ul>
 <div class='hinweis'>Die Verbindung im Büronetz ist mit TLS <b>verschlüsselt</b>. Der Hauptrechner erzeugt dafür einmalig ein eigenes Zertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der <b>Kontrollcode</b> vom Hauptrechner abgetippt; ändert sich das Zertifikat später, hält BnX-Raptor die Verbindung an und überträgt nichts. Nur im eigenen Büronetz verwenden – nicht über das Internet. Server und alle Arbeitsplätze müssen dieselbe Programmversion verwenden: für ein Update zuerst alle Arbeitsplätze schließen, Daten sichern, dann Hauptrechner und Arbeitsplätze gemeinsam aktualisieren.</div>
 """

@@ -400,3 +400,17 @@ def test_kontrollcode_bestaetigung_tolerant_aber_streng():
     assert not zertifikat.bestaetigung_passt(fp, "ABCD EF01")
     assert not zertifikat.bestaetigung_passt(fp, "")
     assert not zertifikat.bestaetigung_passt("", kurz)
+
+
+def test_virenscanner_zertifikat_wird_erkannt_aber_nie_akzeptiert():
+    from core import zertifikat
+    eigenes, _ = zertifikat.zertifikat_erzeugen("Kanzlei-PC", [])
+    fremd, _ = zertifikat.zertifikat_erzeugen("Avast Web/Mail Shield Root", [])     # fiktiver „Scanner“-Aussteller
+    assert zertifikat.scanner(eigenes) == ""
+    assert zertifikat.scanner(fremd) == "Avast"
+    text = netz.zertifikat_meldung(fremd)
+    assert "Avast" in text and "Ausnahme" in text and "keine Daten" in text
+    assert "Kontrollcode" in netz.zertifikat_meldung(eigenes)
+    # das Scanner-Zertifikat passt nie zum bestätigten Kontrollcode
+    assert not zertifikat.bestaetigung_passt(zertifikat.fingerabdruck(fremd),
+                                            zertifikat.kurz(zertifikat.fingerabdruck(eigenes)))

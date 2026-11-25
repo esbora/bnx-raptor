@@ -78,6 +78,56 @@ class AppContext:
             self._nachrichten = _Fern(self.verbindung, "nachrichten")
         return self._nachrichten
 
+    def _objekt(self, name: str, klasse):
+        """0.5: Kernobjekt lokal (Einzelplatz) oder als Proxy zum Server (Mehrbenutzer)."""
+        attr = f"_{name}_obj"
+        if getattr(self, attr, None) is None:
+            if self.verbindung is not None:
+                from core.netz import _Fern
+                setattr(self, attr, _Fern(self.verbindung, name))
+            else:
+                setattr(self, attr, klasse(self.journal.con))
+        return getattr(self, attr)
+
+    @property
+    def posteingang(self):
+        """Kanzlei-Eingang: Eingänge, Akte-Vorschläge, Aufgaben (0.5)."""
+        from core.posteingang import Posteingang
+        return self._objekt("posteingang", Posteingang)
+
+    @property
+    def unterlagen(self):
+        """Was fehlt?: erwartete Unterlagen und Antworten (0.5)."""
+        from core.unterlagen import Unterlagen
+        return self._objekt("unterlagen", Unterlagen)
+
+    @property
+    def versand(self):
+        """Versandnachweise (0.5)."""
+        from core.versand import Versand
+        return self._objekt("versand", Versand)
+
+    def ablage(self, name: str) -> Path:
+        """Ordner für Kopien, die BnX-Raptor selbst anlegt (Posteingang, Versandkopien). Einzelplatz und
+        Server-Rechner: im Datenordner (gehört zur Sicherung). Arbeitsplatz: lokale Zwischenablage – die Dateien
+        werden beim Erfassen ins Archiv auf den Server übertragen."""
+        from core.config import data_dir
+        dateien = getattr(self, "dateien", None)
+        if self.verbindung is not None and dateien is not None and not dateien.direkt:
+            o = Path(self._kopien.ordner) / f"_{name}"
+        else:
+            o = data_dir(self.cfg) / name
+        o.mkdir(parents=True, exist_ok=True)
+        return o
+
+    @property
+    def benutzername(self) -> str:
+        """Anmeldename des aktuellen Benutzers (Einzelplatz: Windows-Benutzer)."""
+        if self.verbindung is not None:
+            return (self.verbindung.benutzer or {}).get("name", "")
+        from core.protokoll import aktuell
+        return aktuell().name
+
     @property
     def mehrbenutzer(self) -> bool:
         return self.verbindung is not None

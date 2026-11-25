@@ -7,6 +7,8 @@ Rollen und Rechte (werden auf dem Server bei JEDER Anfrage geprüft):
 - Administrator: alles, zusätzlich Benutzer, Verbindungseinstellungen, Sicherung/Wiederherstellung
 - Sekretariat:   Mandanten, Akten/Mandate, Versicherungen anlegen und ändern, Kontaktdaten, Dokumente hinzufügen
 - Rechtsanwalt:  sieht und korrigiert alles, bearbeitet Dokumente, Outlook-Entwürfe (lokal), Verlauf
+0.5 (Posteingang/Aufgaben/Unterlagen): Sekretariat erfasst, ordnet zu und bereitet vor; Aufgaben für andere,
+„Geprüft / vollständig“ und Checklisten-Vorlagen: Rechtsanwalt/Administrator (Prüfung im Kern = auf dem Server).
 """
 from __future__ import annotations
 
@@ -34,7 +36,8 @@ CREATE TABLE IF NOT EXISTS benutzer (
 # Funktionen sind zusätzlich nur für Administratoren (siehe NUR_ADMIN).
 NUR_ADMIN = {"benutzer.*", "sicherung.*", "server.*"}
 VERBOTEN = {
-    "sekretariat": {"archiv.bearbeitet", "datei.ersetzen", "journal.bearbeitet_setzen"},
+    "sekretariat": {"archiv.bearbeitet", "datei.ersetzen", "journal.bearbeitet_setzen",
+                    "unterlagen.vorlage_speichern", "unterlagen.vorlage_loeschen"},
     "anwalt": set(),
     "admin": set(),
 }

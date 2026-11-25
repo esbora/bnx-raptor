@@ -32,16 +32,29 @@ FELDNAMEN = {
     "versicherung_id": "Versicherung", "versicherungsnummer": "Versicherungsnummer", "schaden_nr": "Schaden-Nr.",
     "mandant_name": "Name Mandant", "mandant_email": "E-Mail Mandant", "versicherer_email": "E-Mail Versicherung",
     "ordner": "Aktenordner", "standard_email": "Standard-E-Mail", "nummer_art": "Nummernart",
+    # 0.5: Posteingang, Aufgaben, erwartete Unterlagen
+    "akte": "Akte", "belegart": "Belegart", "verantwortlich": "Verantwortlich", "status": "Status",
+    "naechster_schritt": "Nächster Schritt", "dokument_datum": "Dokumentdatum", "betreff": "Betreff",
+    "absender": "Absender", "absender_name": "Name Absender", "titel": "Titel", "beschreibung": "Beschreibung",
+    "prioritaet": "Priorität", "faellig": "Fällig am", "nachfassen": "Nachfassen am", "akte_art": "Aktenart",
+    "angefordert_am": "Angefordert am", "von_rolle": "Erwartet von", "von_name": "Name (von)",
 }
 ROLLEN_TEXT = {"admin": "Administrator", "sekretariat": "Sekretariat", "anwalt": "Rechtsanwalt"}
 ARTEN_TEXT = {"mandant": "Mandant", "akte": "Akte", "versicherung": "Versicherung", "dokument": "Dokument",
-              "benutzer": "Benutzer", "sicherung": "Sicherung"}
+              "benutzer": "Benutzer", "sicherung": "Sicherung", "eingang": "Eingang", "aufgabe": "Aufgabe",
+              "erwartung": "Erwartete Unterlage", "versand": "Versand", "checkliste": "Checkliste"}
 AKTIONEN_TEXT = {"erstellt": "angelegt", "geaendert": "geändert", "geloescht": "gelöscht",
                  "dokument_hinzugefuegt": "Dokument hinzugefügt", "dokument_gespeichert": "Dokument gespeichert",
                  "dokument_zugeordnet": "Dokument zugeordnet", "email_hinzugefuegt": "E-Mail hinzugefügt",
                  "email_entfernt": "E-Mail entfernt", "passwort": "Passwort geändert",
                  "deaktiviert": "deaktiviert", "aktiviert": "aktiviert", "rolle": "Rolle geändert",
-                 "wiederhergestellt": "Sicherung wiederhergestellt", "erstellt_sicherung": "Sicherung erstellt"}
+                 "wiederhergestellt": "Sicherung wiederhergestellt", "erstellt_sicherung": "Sicherung erstellt",
+                 "zugeordnet": "Akte zugeordnet", "zuordnung_geloest": "Akte-Zuordnung gelöst",
+                 "erledigt": "erledigt", "wiedereroeffnet": "wieder geöffnet",
+                 "angefordert": "als angefordert eingetragen", "eingang_verknuepft": "Eingang verknüpft",
+                 "erwartung_angelegt": "Erwartete Unterlage angelegt", "versand_entwurf": "Versand-Entwurf erstellt",
+                 "entwurf_erstellt": "Entwurf erstellt", "versand_bestaetigt": "Versand bestätigt",
+                 "versand_nicht_bestaetigt": "Versand nicht bestätigt"}
 
 
 @dataclass(frozen=True)
@@ -167,7 +180,7 @@ def _eintrag(d: dict) -> dict:
     d["felder"] = felder
     feldtext = ", ".join(FELDNAMEN.get(f, f) for f in felder)
     aktion = AKTIONEN_TEXT.get(d["aktion"], d["aktion"])
-    if d["aktion"].startswith("dokument_") or d["aktion"].startswith("email_"):
+    if d["aktion"].startswith(("dokument_", "email_")) or d["aktion"] in ("erwartung_angelegt", "versand_entwurf"):
         d["text"] = f"{aktion}: {d.get('objekt_name') or ''}".rstrip(": ")
     elif d["aktion"] == "geaendert" and feldtext:
         d["text"] = f"{feldtext} geändert"

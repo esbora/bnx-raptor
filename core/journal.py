@@ -18,6 +18,7 @@ ARTEN = {
     "entwurf": "E-Mail-Entwurf",
     "anlagen": "Anlagenpaket",
     "dokument": "Dokument hinzugefügt",
+    "versand": "Versand bestätigt",
 }
 
 SCHEMA = """

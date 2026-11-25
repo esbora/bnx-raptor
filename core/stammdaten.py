@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS versicherungen (
 AKTEN_SPALTEN = [("aktenzeichen", "TEXT DEFAULT ''"), ("mandant_id", "INTEGER"), ("versicherung_id", "INTEGER"),
                  ("versicherungsnummer", "TEXT DEFAULT ''"), ("schaden_nr", "TEXT DEFAULT ''"),
                  ("erstellt_von", "TEXT DEFAULT ''"), ("geaendert", "TEXT DEFAULT ''"),
-                 ("geaendert_von", "TEXT DEFAULT ''")]                 # 0.4.2: wer/wann
+                 ("geaendert_von", "TEXT DEFAULT ''"),                 # 0.4.2: wer/wann
+                 ("akte_art", "TEXT DEFAULT ''")]                      # 0.5: Aktenart (Checklisten)
 VERSICHERUNG_SPALTEN = [("standard_email", "TEXT DEFAULT ''"),       # 0.4.1: Standardadresse bei mehreren
                         ("erstellt_von", "TEXT DEFAULT ''"), ("geaendert_von", "TEXT DEFAULT ''")]
 MANDANT_SPALTEN = [("nummer", "TEXT DEFAULT ''"),                     # 0.4.2: Mandats-Nr. M01, M02 … (fest)
@@ -255,7 +256,7 @@ class Stammdaten:
 
     def akte_setzen(self, referenz: str, _basis: dict | None = None, _protokoll: bool = True, **werte) -> None:
         erlaubt = {"aktenzeichen", "mandant_id", "versicherung_id", "versicherungsnummer", "schaden_nr",
-                   "mandant_name", "mandant_email", "versicherer_email", "notiz", "ordner"}
+                   "mandant_name", "mandant_email", "versicherer_email", "notiz", "ordner", "akte_art"}
         werte = {k: v for k, v in werte.items() if k in erlaubt}
         if not werte:
             return

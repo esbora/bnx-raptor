@@ -1017,38 +1017,33 @@ class AnlagenTab(QWidget):
             theme.status_setzen(self.status, "ok", text)
 
     def outlook(self):
+        """0.5: Anhänge-Fenster mit Versandkontrolle (Empfänger ↔ Akte, Anlagenverweise im Schriftsatz, Metadaten),
+        feste Versandkopien und Versandnachweis. Es wird nie gesendet."""
         if not self.paket:
             return
         self.schritte += 1
-        dateien = [(d.pfad, ("Schriftsatz" if d.rolle == "schriftsatz" else
-                             f"{d.bezeichnung}: {d.titel}" if d.rolle in ("anlage", "original") else
-                             "Anlagenverzeichnis (Word)" if d.rolle == "verzeichnis" else "nur intern"),
-                    d.rolle in ("schriftsatz", "anlage", "original")) for d in self.paket.dateien
-                   if d.rolle != "fehlt"]
-        dlg = AnhangVorschau(self, dateien, "Anhänge für den Outlook-Entwurf",
-                             aktiv=lambda: bool(self.cfg.get("grosse_vorschau", True)))
-        if dlg.exec() != QDialog.Accepted:
+        dateien = []
+        haupt = None
+        for d in self.paket.dateien:
+            if d.rolle == "fehlt":
+                continue
+            beschreibung = ("Schriftsatz" if d.rolle == "schriftsatz" else
+                            f"{d.bezeichnung}: {d.titel}" if d.rolle in ("anlage", "original") else
+                            "Anlagenverzeichnis (Word)" if d.rolle == "verzeichnis" else "nur intern")
+            bez = d.bezeichnung if d.rolle in ("anlage", "original") and d.bezeichnung != "Schriftsatz" else ""
+            dateien.append((d.pfad, beschreibung, d.rolle in ("schriftsatz", "anlage", "original"), bez))
+            if d.rolle == "schriftsatz" or (d.rolle == "original" and d.bezeichnung == "Schriftsatz"):
+                haupt = d.pfad
+        bez = [d.bezeichnung for d in self.paket.dateien if d.rolle == "anlage"]
+        from .versand_ui import versand_vorbereiten
+        gewaehlt = [d for d in self.paket.dateien if d.rolle != "fehlt"]
+        erg = versand_vorbereiten(self, self.ctx, dateien, "Anhänge für den Outlook-Entwurf",
+                                  an.mail_betreff(self.schriftsatz().titel if self.schriftsatz() else "Anlagen", bez),
+                                  an.mail_text(gewaehlt), hauptdokument=haupt)
+        if erg is None:
             return
         self.schritte += 1
-        auswahl = dlg.auswahl()
-        geaendert = [p.name for p, sha in auswahl if pe.sha256(p) != sha]
-        if geaendert:
-            QMessageBox.critical(self, "Entwurf", "Diese Dateien wurden nach der Vorschau verändert:\n"
-                                 + "\n".join(geaendert))
-            return
-        gewaehlt = [d for d in self.paket.dateien if d.pfad in {p for p, _ in auswahl}]
-        bez = [d.bezeichnung for d in gewaehlt if d.rolle == "anlage"]
-        from core.entwurf import entwurf_erstellen
-        try:
-            msg = entwurf_erstellen(self.ctx, MailDraft(
-                to="", subject=an.mail_betreff(self.schriftsatz().titel if self.schriftsatz() else "Anlagen", bez),
-                html_body=an.mail_text(gewaehlt), attachments=[p for p, _ in auswahl]),
-                self.paket.ordner, anhaenge_pruefen=True)
-        except MailError as ex:
-            self.ctx.journal.add("anlagen", str(self.paket.ordner), status="fehler", meldung=meldung(ex), art="entwurf")
-            QMessageBox.critical(self, "Entwurf", meldung(ex))
-            return
-        self.ctx.journal.add("anlagen", str(self.paket.ordner), meldung=msg, art="entwurf")
-        self.status.setText(f"✓ {msg}. Die E-Mail wurde nicht gesendet.")
-        QMessageBox.information(self, "Entwurf erstellt", f"{msg}.\n\nDie E-Mail wurde nicht gesendet – "
-                                                          "bitte Empfänger eintragen und selbst prüfen.")
+        self.ctx.journal.add("anlagen", str(self.paket.ordner), meldung="Outlook-Entwurf mit Versandkontrolle erstellt"
+                             + (f" (Versandnachweis Nr. {erg['id']})" if erg.get("id") else ""), art="entwurf")
+        self.status.setText("✓ Entwurf erstellt. Die E-Mail wurde nicht gesendet.")
+

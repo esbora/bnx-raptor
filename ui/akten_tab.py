@@ -15,7 +15,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from core.eingang import eml_lesen, finde_referenz
@@ -224,7 +224,6 @@ class AktenTab(QWidget):
         rl.addWidget(self.stamm)
 
         self.l_verlauf = QLabel("Verlauf – Doppelklick öffnet die Datei zum Bearbeiten; mehrere markieren für E-Mail:")
-        rl.addWidget(self.l_verlauf)
         vsplit = QSplitter()
         self.verlauf = QTableWidget(0, 5)
         self.verlauf.setAccessibleName("Verlauf")
@@ -247,7 +246,23 @@ class AktenTab(QWidget):
         vsc.setWidgetResizable(True)
         vsplit.addWidget(vsc)
         vsplit.setSizes([640, 260])
-        rl.addWidget(vsplit, 1)
+        # 0.5: Verlauf | Offene Unterlagen & Antworten | Versand
+        from .unterlagen_ui import UnterlagenWidget
+        from .versand_ui import VersandListe
+        self.reiter = QTabWidget()
+        self.reiter.setAccessibleName("Akte-Bereiche")
+        vw = QWidget()
+        vwl = QVBoxLayout(vw)
+        vwl.setContentsMargins(0, 4, 0, 0)
+        vwl.addWidget(self.l_verlauf)
+        vwl.addWidget(vsplit, 1)
+        self.reiter.addTab(vw, "Verlauf")
+        self.versand_liste = VersandListe(ctx)
+        self.unterlagen = UnterlagenWidget(ctx, lambda: self.versand_liste.laden(self.aktuelle_referenz()))
+        self.reiter.addTab(self.unterlagen, "Offene Unterlagen && Antworten")
+        self.reiter.addTab(self.versand_liste, "Versand")
+        self.reiter.currentChanged.connect(lambda *_: self._reiter_laden())
+        rl.addWidget(self.reiter, 1)
 
         knoepfe = QHBoxLayout()
         self.b_ordner = QPushButton(theme.icon("ordner", "titel", 16), "  Aktenordner öffnen")
@@ -481,6 +496,9 @@ class AktenTab(QWidget):
             b.setVisible(not ohne)
         self.b_zuordnen.setVisible(ohne)
         if ohne:
+            self.reiter.setCurrentIndex(0)
+            self.reiter.setTabEnabled(1, False)
+            self.reiter.setTabEnabled(2, False)
             self.l_meta.setText("")
             self.titel.setText("Dokumente ohne Akte")
             self.l_verlauf.setText("Bearbeitete Dokumente ohne Akte – markieren und „Akte zuordnen…“; "
@@ -523,6 +541,31 @@ class AktenTab(QWidget):
         self.verlauf.resizeColumnsToContents()
         self.verlauf.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.vorschau_zeigen(self.verlauf.currentRow())
+        self._reiter_laden()
+
+    def _reiter_laden(self):
+        """Unterlagen/Versand der gewählten Akte (nur der sichtbare Reiter wird geladen)."""
+        ref = self.aktuelle_referenz()
+        ref = "" if ref == OHNE_AKTE else ref
+        self.reiter.setTabEnabled(1, bool(ref))
+        self.reiter.setTabEnabled(2, bool(ref))
+        if self.reiter.currentWidget() is self.unterlagen:
+            self.unterlagen.laden(ref)
+        elif self.reiter.currentWidget() is self.versand_liste:
+            self.versand_liste.laden(ref)
+        try:
+            offen = sum(1 for e in self.ctx.unterlagen.liste(ref) if e["status"] in ("nicht_angefordert",
+                                                                                      "angefordert", "eingegangen"))                 if ref else 0
+        except Exception:  # noqa: BLE001 – Zähler ist nur eine Hilfe
+            offen = 0
+        self.reiter.setTabText(1, f"Offene Unterlagen && Antworten ({offen})" if offen else
+                               "Offene Unterlagen && Antworten")
+
+    def akte_bereich_zeigen(self, name: str):
+        """Von außen (Startseite/Posteingang): Reiter „unterlagen“ oder „versand“ der gewählten Akte zeigen."""
+        self.reiter.setCurrentWidget({"unterlagen": self.unterlagen, "versand": self.versand_liste}.get(
+            name, self.reiter.widget(0)))
+        self._reiter_laden()
 
     def _verlauf_dokumente(self, doks: list[dict]):
         self.verlauf.setRowCount(len(doks))
@@ -804,33 +847,25 @@ class AktenTab(QWidget):
         cfg = self.ctx.cfg
         self.akte_speichern()                     # zuletzt angezeigte Adresse gilt (auch ohne Feldwechsel)
         if an == "mandant":
-            empf, betreff, text, art = (self.f_mandant_email.text().strip(), cfg["mandant_betreff_vorlage"],
-                                        cfg["mandant_info_text_html"], "mandant")
+            empf, betreff, text = (self.f_mandant_email.text().strip(), cfg["mandant_betreff_vorlage"],
+                                   cfg["mandant_info_text_html"])
         else:
-            empf, betreff, text, art = (self.f_versicherer.currentText().strip(), cfg["betreff_vorlage"],
-                                        cfg["mail_text_html"], "entwurf")
-        if not empf or not is_valid_email(empf):          # nur wenn im Formular keine gültige Adresse steht
-            empf, ok = QInputDialog.getText(self, "Empfänger",
-                                            f"E-Mail-Adresse ({len(dateien)} Anlage(n)):", text=empf)
-            if not ok or not empf.strip():
-                return
-            if not is_valid_email(empf):
-                QMessageBox.warning(self, "Ungültig", f"„{empf}“ ist keine gültige E-Mail-Adresse.")
-                return
-        try:
-            msg = entwurf_erstellen(self.ctx, MailDraft(
-                to=empf.strip(), subject=betreff_bilden(betreff, ref, akte.get("nummer_art", "")), html_body=text,
-                attachments=dateien), Path(akte["ordner"]) if akte["ordner"] else Path.home())
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Fehler", meldung(e))
+            empf, betreff, text = (self.f_versicherer.currentText().strip(), cfg["betreff_vorlage"],
+                                   cfg["mail_text_html"])
+        # 0.5: gemeinsame Versandkontrolle (Empfänger ↔ Akte, Anlagen, Metadaten) + feste Kopien + Versandnachweis
+        from .versand_ui import bezeichnung_aus_name, versand_vorbereiten
+        liste = [(p, "", True, bezeichnung_aus_name(p.name)) for p in dateien]
+        erg = versand_vorbereiten(self, self.ctx, liste, "E-Mail an " + ("Mandant" if an == "mandant" else
+                                                                        "Versicherung"),
+                                  betreff_bilden(betreff, ref, akte.get("nummer_art", "")), text, akte=ref,
+                                  akte_fest=True, empfaenger=empf)
+        if erg is None:
             return
+        neu_empf = (erg or {}).get("empfaenger", "")
         feld = self.f_mandant_email if an == "mandant" else self.f_versicherer.lineEdit()
-        if feld.text().strip() != empf.strip():           # im Dialog eingegebene Adresse gilt für diese Akte
-            feld.setText(empf.strip())
+        if neu_empf and feld.text().strip() != neu_empf.strip() and is_valid_email(neu_empf.strip()):
+            feld.setText(neu_empf.strip())              # im Fenster geänderte Adresse gilt für diese Akte
             self.akte_speichern()
-        self.ctx.journal.add("akte", "", str(dateien[0]) if dateien else "", empf.strip(), ref,
-                             meldung=f"{msg} – Anlagen: " + ", ".join(d.name for d in dateien),
-                             art=art)
         self.laden()
 
     # --- Gelen cevaplar ----------------------------------------------------

@@ -44,9 +44,10 @@ class NachrichtenTab(QWidget):
     """Nachrichtenseite. `oeffnen_akte(ref)` / `oeffnen_mandant(id)` kommen vom Hauptfenster."""
     ungelesen_geaendert = Signal(int)
 
-    def __init__(self, ctx, oeffnen_akte, oeffnen_mandant):
+    def __init__(self, ctx, oeffnen_akte, oeffnen_mandant, oeffnen_aufgabe=None):
         super().__init__()
         self.ctx, self.oeffnen_akte, self.oeffnen_mandant = ctx, oeffnen_akte, oeffnen_mandant
+        self.oeffnen_aufgabe = oeffnen_aufgabe            # 0.5: Nachricht verweist auf eine Aufgabe
         self.partner: str | None = None
         self.ausstehend: dict[str, list[dict]] = {}          # Partner → noch nicht gesendete Nachrichten
         self.verlauf_cache: list[dict] = []
@@ -200,6 +201,8 @@ class NachrichtenTab(QWidget):
                 links += f" <a href='bnx:akte/{html.escape(m['akte'])}'>📁 Akte {html.escape(m['akte'])}</a>"
             if m.get("mandant_id"):
                 links += f" <a href='bnx:mandant/{m['mandant_id']}'>👤 Mandant öffnen</a>"
+            if m.get("aufgabe_id"):
+                links += f" <a href='bnx:aufgabe/{m['aufgabe_id']}'>☑ Aufgabe öffnen</a>"
             kopf = (f"<b style='color:{farbe}'>{html.escape(m.get('absender_anzeige') or 'Ich')}</b> "
                     f"<span style='color:{theme.F['gedimmt']}'>· {_zeit(m.get('zeit', ''))}"
                     + (f" · {status}" if status else "") + "</span>")
@@ -216,6 +219,8 @@ class NachrichtenTab(QWidget):
             self.oeffnen_akte(QUrl.fromPercentEncoding(wert.encode()))
         elif art == "mandant" and wert.isdigit():
             self.oeffnen_mandant(int(wert))
+        elif art == "aufgabe" and wert.isdigit() and self.oeffnen_aufgabe:
+            self.oeffnen_aufgabe(int(wert))           # Gelesen heißt nicht erledigt – die Aufgabe bleibt offen
 
     # --- Senden ---------------------------------------------------------------------
     def senden(self, akte: str = "", mandant_id: int | None = None, text: str | None = None, partner: str | None = None):

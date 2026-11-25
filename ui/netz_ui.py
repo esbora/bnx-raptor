@@ -219,6 +219,10 @@ class VerbindenDialog(QDialog):
             return
         # Kod burada bilerek gösterilmez: kullanıcı onu ana bilgisayarın ekranından okumalıdır.
         from core import zertifikat
+        scanner = zertifikat.scanner(pem)
+        if scanner:                              # Virenscanner bricht TLS auf → Code würde nie passen
+            theme.status_setzen(self.status, "fehler", zertifikat.scanner_text(scanner))
+            return
         gefragt, ok = QInputDialog.getText(self, "Server-Identität prüfen",
             "Einmalige Sicherheitsprüfung: Öffnen Sie am Hauptrechner Einstellungen → Netzwerk und tippen Sie\n"
             "den dort angezeigten Kontrollcode (16 Zeichen, z. B. 1A2B 3C4D 5E6F 7A8B) hier ab.\n"
@@ -293,8 +297,7 @@ def verbinden(cfg: dict, server_laeuft: bool) -> netz.Verbindung | None:
                 if gefunden:
                     continue
             box = QMessageBox(QMessageBox.Warning, "BnX-Raptor – Verbindung gesperrt",
-                              ("Server-Zertifikat geändert oder ungültig. Keine Daten übertragen. "
-                               "Bitte Identität am Hauptrechner prüfen." if isinstance(fehler, netz.ZertifikatFehler)
+                              (str(fehler) if isinstance(fehler, netz.ZertifikatFehler)
                                else "Server nicht erreichbar." if cfg.get("modus") == "client" else
                                "Der eigene Server-Dienst antwortet nicht."))
             box.setInformativeText(

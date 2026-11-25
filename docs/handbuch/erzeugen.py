@@ -110,8 +110,8 @@ Kammer und optional ein Logo. Später änderbar über {ui('Einstellungen')} → 
 <span class='t'>%APPDATA%\\BnX-Raptor</span> bzw. im Ordner aus <span class='t'>daten_ordner</span>.</p>
 
 <h2>2. Die Oberfläche</h2>
-<p>Links die Navigation: {ui('Start')}, {ui('Anlagen')}, {ui('PDF-Editor')}, {ui('Akten')}, {ui('Mandanten')},
-{ui('Versicherungen')}, {ui('Einstellungen')} (per Tastatur: <span class='t'>Strg+1</span> bis <span class='t'>Strg+7</span>).
+<p>Links die Navigation: {ui('Start')}, {ui('Posteingang')}, {ui('Anlagen')}, {ui('PDF-Editor')}, {ui('Akten')},
+{ui('Mandanten')}, {ui('Versicherungen')}, im Büronetz {ui('Nachrichten')}, {ui('Einstellungen')} (per Tastatur: <span class='t'>Strg+1</span>, <span class='t'>Strg+2</span> …).
 Die Oberfläche ist immer hell – auch wenn Windows auf „Dunkel“ steht. Eingaben in Akten, Mandanten und Versicherungen
 werden automatisch gespeichert. Rückmeldungen erscheinen immer mit Farbe <b>und</b> Zeichen:</p>
 {tab(['Zeichen', 'Bedeutung'], [
@@ -304,6 +304,70 @@ Programmsitzung erhalten. Nach dem Wiederverbinden wird mit derselben Kennung er
 Programm bei einer noch nicht gesendeten Nachricht nicht, ohne den Text anderweitig zu sichern.</p>
 <div class='hinweis'>Die Verbindung im Büronetz ist mit TLS <b>verschlüsselt</b>. Der Hauptrechner erzeugt dafür einmalig ein eigenes Zertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der <b>Kontrollcode</b> vom Hauptrechner abgetippt; ändert sich das Zertifikat später, hält BnX-Raptor die Verbindung an und überträgt nichts. Nur im eigenen Büronetz verwenden – nicht über das Internet. Server und alle Arbeitsplätze müssen dieselbe Programmversion verwenden: für ein Update zuerst alle Arbeitsplätze schließen, Daten sichern, dann Hauptrechner und Arbeitsplätze gemeinsam aktualisieren.</div>
 
+<h2>6c. Posteingang, Aufgaben, „Was fehlt?“ und Versandkontrolle</h2>
+<p><b>Kurz:</b> Das Sekretariat übernimmt die Post und bestätigt die Akte, die Rechtsanwältin / der Rechtsanwalt
+entscheidet mit einer Schnellaktion, daraus entsteht eine Aufgabe. Was in einer Akte noch fehlt, steht unter
+{ui('Offene Unterlagen & Antworten')}. Vor jedem Outlook-Entwurf prüft die Versandkontrolle Empfänger und Anlagen.
+Gesendet wird nie automatisch.</p>
+<h3>Posteingang</h3>
+<ol><li>{ui('Posteingang')} → {ui('Aus Outlook übernehmen')} (vorher die E-Mails im klassischen Outlook markieren)
+oder {ui('Dateien / E-Mails hinzufügen…')} – oder E-Mails (.eml/.msg), PDFs, Word-Dateien und Scans hierher ziehen.
+BnX-Raptor legt Kopien an; Postfach und Quelldateien bleiben unverändert. Dieselbe E-Mail (Message-ID) oder dieselbe
+Datei wird nicht doppelt angelegt.</li>
+<li>Rechts erscheinen Absender, Eingangszeit, Dateien und der <b>Akte-Vorschlag mit Begründung</b> (z. B. „Schaden-Nr.
+… steht im Eingang“). Richtige Akte markieren → {ui('Ausgewählte Akte bestätigen')} – oder {ui('Andere Akte wählen…')}.
+Kommen mehrere Akten in Frage, wird nichts vorausgewählt. Erst nach der Bestätigung erscheinen die Dokumente im Verlauf
+der Akte; bis dahin steht der Eingang unter „Nicht zugeordnet“. Bei Scans ohne Text:
+{ui('Texterkennung für den Vorschlag')}.</li>
+<li>Belegart und Dokumentdatum sind Vorschläge („erkannt – bitte prüfen“). Verantwortlich, Status und nächster Schritt
+werden automatisch gespeichert.</li></ol>
+{bild('20_posteingang_vorschlag.png', 'Posteingang: Akte-Vorschlag mit Begründung – zwei Akten kommen in Frage, die richtige wird bestätigt (fiktive Daten).', 470)}
+<h3>Schnellaktionen und Aufgaben</h3>
+<p>{ui('Zur Kenntnis')}, {ui('Antwort vorbereiten')}, {ui('Unterlagen anfordern')}, {ui('Rückruf')} und
+{ui('Frist prüfen')} legen eine Aufgabe an (Verantwortlich, Beschreibung, Priorität, optional „zu erledigen bis“).
+<b>„Frist prüfen“ ist nur ein Prüfauftrag</b> – BnX-Raptor berechnet keine Frist und trägt keine Frist ein. Aufgaben für
+andere vergibt die Rechtsanwältin / der Rechtsanwalt; das Sekretariat kann sich selbst Aufgaben anlegen. {ui('Erledigt')}
+speichert Name und Zeit; {ui('Wieder öffnen')} macht ein Versehen rückgängig. Ansichten: {ui('Meine Aufgaben')},
+{ui('Nicht zugeordnet')}, {ui('Neu')} / {ui('In Bearbeitung')} / {ui('Erledigt')}, {ui('Überfällige Aufgaben')} und der
+Filter „Verantwortlich“. Im Büronetz erhält die verantwortliche Person eine Nachricht mit {ui('Aufgabe öffnen')} – das Lesen
+der Nachricht erledigt die Aufgabe nicht.</p>
+{bild('21_aufgabe_anlegen.png', 'Schnellaktion „Unterlagen anfordern“ als Aufgabe (fiktive Daten).', 300)}
+<p>Auf der Startseite zeigt {ui('Heute im Blick')} die eigenen Aufgaben, erwartete Unterlagen und Antworten sowie
+Überfälliges und fälliges Nachfassen. Doppelklick öffnet die Aufgabe bzw. die Akte.</p>
+{bild('22_heute_im_blick.png', 'Startseite – Heute im Blick (fiktive Daten).', 470)}
+<h3>Was fehlt? – Offene Unterlagen &amp; Antworten</h3>
+<ol><li>Akte öffnen → Reiter {ui('Offene Unterlagen & Antworten')}. {ui('Neu…')} oder {ui('Checkliste anwenden…')}
+(Beispiel „Verkehrsunfall / Versicherung“: Vollmacht, Gutachten, Rechnung, Antwort der Versicherung). Checklisten sind
+Vorschläge, keine rechtlichen Pflichtlisten; die Punkte werden in die Akte kopiert, spätere Änderungen an der Vorlage
+ändern bestehende Akten nicht ({ui('Checklisten verwalten…')}: Rechtsanwalt/Administrator).</li>
+<li>{ui('Erinnerung vorbereiten…')} erstellt einen Outlook-Entwurf mit den fehlenden Punkten – <b>nicht gesendet</b>. Der
+Status bleibt „Noch nicht angefordert“, bis der Versand bestätigt ist (Reiter {ui('Versand')}) oder Sie
+{ui('Als angefordert eintragen…')} wählen (z. B. nach einem Telefonat).</li>
+<li>Kommt die Unterlage, schlägt der Posteingang den passenden Punkt vor → {ui('Mit diesem Eingang verknüpfen')}. Der
+Status wird „Eingegangen – zu prüfen“. <b>„Geprüft / vollständig“ setzt immer ein Mensch</b> ({ui('Status ▾')});
+Teil- oder falsche Unterlagen bleiben offen.</li></ol>
+{bild('23_offene_unterlagen.png', 'Akte – Offene Unterlagen & Antworten (fiktive Daten).', 470)}
+<h3>Versandkontrolle und Versandnachweis</h3>
+<p>Im Fenster „Anhänge für den Outlook-Entwurf“ (Anlagen-Assistent, {ui('E-Mail an Mandant…')},
+{ui('E-Mail an Versicherung…')}, Erinnerungen) steht oben eine kurze Statuszeile; {ui('Details')} zeigt alle Ergebnisse.
+Geprüft werden: Empfänger ↔ Akte (Mandant, Versicherung, nicht hinterlegt / andere Akte), ob das Hauptdokument die
+Nummer der Akte nennt, ob die im Text genannten Anlagen (z. B. „Anlage K2“, „Anlagen K1 bis K3“) angehängt sind –
+mit Fundstelle –, Lücken und doppelte Nummern, doppelte und nicht lesbare Dateien, Kommentare und nachverfolgte
+Änderungen in Word sowie Metadaten (Autor, Firma …). Ein bloßes „K2“ oder ein Zitat gilt nur als Hinweis. Kann etwas
+nicht geprüft werden (z. B. Scan ohne Text, .doc, Bilder), steht dort „Nicht geprüft“ – das heißt nicht „in Ordnung“.
+PDF/A und Schwärzung werden hier nicht neu bewertet.</p>
+<p>Bei abweichendem Empfänger, einer fehlenden Anlage oder einer nicht lesbaren Datei fragt BnX-Raptor <b>einmal</b>:
+korrigieren oder mit kurzer Begründung trotzdem fortfahren (Name, Zeit und Begründung werden gespeichert). Auf Wunsch
+werden Metadaten bzw. Kommentare <b>nur in der Versandkopie</b> entfernt; die Kopie wird danach geöffnet und geprüft.
+Nachverfolgte Änderungen müssen in Word angenommen oder abgelehnt werden.</p>
+{bild('24_versandkontrolle.png', 'Versandkontrolle: Anlage K2 wird im Schriftsatz genannt, ist aber nicht angehängt (fiktive Daten).', 470)}
+<p>Für jeden Entwurf entsteht ein <b>Versandnachweis</b> (Akte → Reiter {ui('Versand')}): Empfänger, Betreff,
+Reihenfolge, Prüfsumme und eine feste Kopie jeder Datei. „Entwurf erstellt“ heißt nicht gesendet. Nach dem Senden:
+{ui('Gesendet-Ordner prüfen')} (klassisches Outlook: gleiche Empfänger und identische Anhänge) oder
+{ui('Als gesendet bestätigen…')}; verworfen: {ui('Als nicht gesendet markieren…')}. {ui('Originale prüfen')} zeigt, ob
+ein Original seit dem Entwurf geändert wurde – die Versandkopie bleibt unverändert.</p>
+{bild('25_versandnachweis.png', 'Akte – Reiter Versand mit Versandnachweis (fiktive Daten).', 470)}
+
 <h2>7. Häufige Probleme und Lösungen</h2>
 {tab(['Problem', 'Ursache und Lösung'], [
     ['„… ist in Word geöffnet und nicht gespeichert“', 'Die Datei ist in Word offen und hat ungespeicherte Änderungen. In Word speichern (oder schließen) und erneut starten.'],
@@ -316,7 +380,10 @@ Programm bei einer noch nicht gesendeten Nachricht nicht, ohne den Text anderwei
     ['Word-Dokument ist geschützt', 'Vor dem Bearbeiten meldet BnX-Raptor Bearbeitungseinschränkungen und gesperrte Inhaltssteuerelemente. In Word unter „Überprüfen → Bearbeitung einschränken“ den Schutz aufheben bzw. die Vorlage freigeben lassen.'],
     ['Fehlermeldung von Word/Outlook', 'Die Meldung nennt die Ursache in Klartext. Technische Einzelheiten für den Support stehen in <span class="t">bnx-raptor.log</span> im Datenordner (ohne Dokumentinhalte).'],
     ['Windows-Warnung beim Start', 'SmartScreen warnt bei unsignierten Programmen. Prüfsumme vergleichen (Regeln der Kanzlei-IT beachten).'],
-    ['Texterkennung fehlt', 'Ordner <span class="t">ocr</span> neben <span class="t">BnX-Raptor.exe</span> fehlt – ZIP vollständig neu entpacken.']], [30, 70])}
+    ['Texterkennung fehlt', 'Ordner <span class="t">ocr</span> neben <span class="t">BnX-Raptor.exe</span> fehlt – ZIP vollständig neu entpacken.'],
+    ['„… prüft die verschlüsselte Verbindung …“ (Büronetz)', 'Ein Virenscanner (z. B. Avast-Web-Schutz) bricht die Verbindung zum Hauptrechner auf und legt ein eigenes Zertifikat vor. BnX-Raptor überträgt dann nichts. Im Virenscanner eine Ausnahme für BnX-Raptor.exe bzw. den Hauptrechner (Port 47310) einrichten – am Hauptrechner und an jedem Arbeitsplatz.'],
+    ['Eingang hat keinen Akte-Vorschlag', 'Weder eine bekannte Nummer noch ein bekannter Absender gefunden. {ui("Andere Akte wählen…")}; bei Scans vorher {ui("Texterkennung für den Vorschlag")}.'.replace('{ui("Andere Akte wählen…")}', ui('Andere Akte wählen…')).replace('{ui("Texterkennung für den Vorschlag")}', ui('Texterkennung für den Vorschlag'))],
+    ['Versand bleibt „Entwurf erstellt“', 'Das ist gewollt: Erst {ui("Gesendet-Ordner prüfen")} (klassisches Outlook) oder {ui("Als gesendet bestätigen…")} bestätigt den Versand.'.replace('{ui("Gesendet-Ordner prüfen")}', ui('Gesendet-Ordner prüfen')).replace('{ui("Als gesendet bestätigen…")}', ui('Als gesendet bestätigen…'))]], [30, 70])}
 
 <h2>8. Bekannte Grenzen dieser Testversion</h2>
 <ul><li><b>Neues Outlook</b> wurde nicht geprüft; unterstützt wird das klassische Outlook (sonst .eml-Datei).</li>
@@ -326,11 +393,13 @@ Eine Prüfung mit einem unabhängigen PDF/A-Prüfprogramm wurde nicht durchgefü
 <li>Keine Schräglagenkorrektur bei Scans; Texterkennung nur Deutsch, Türkisch, Englisch.</li>
 <li>Keine eigene Verschlüsselung der gespeicherten Daten – bitte Laufwerksverschlüsselung (z. B. BitLocker) und eigene
 Windows-Konten verwenden. Löschen: Programmordner und Datenordner (<span class='t'>%APPDATA%\\BnX-Raptor</span>) entfernen.</li>
-<li>E-Mails werden nie automatisch gesendet.</li></ul>
+<li>E-Mails werden nie automatisch gesendet.</li>
+<li>Posteingang: kein beA-Import; „Aus Outlook übernehmen“ nur mit dem klassischen Outlook (sonst .eml/.msg ziehen). Texterkennung für den Akte-Vorschlag liest die ersten zwei Seiten.</li>
+<li>Versandkontrolle: Anlagenverweise werden in Word (.docx) und PDF mit Textebene gelesen; .doc, Bilder und Scans ohne Text werden als „Nicht geprüft“ gekennzeichnet. „Gesendet-Ordner prüfen“ nur mit dem klassischen Outlook. Keine eigene PDF/A-Prüfung.</li></ul>
 
 <h2>9. Tastenkürzel</h2>
 {tab(['Bereich', 'Kürzel'], [
-    ['Navigation', '<span class="t">Strg+1</span> Start · <span class="t">Strg+2</span> Anlagen · <span class="t">Strg+3</span> PDF-Editor · <span class="t">Strg+4</span> Akten · <span class="t">Strg+5</span> Mandanten · <span class="t">Strg+6</span> Versicherungen · <span class="t">Strg+7</span> Einstellungen'],
+    ['Navigation', '<span class="t">Strg+1</span> Start · <span class="t">Strg+2</span> Posteingang · <span class="t">Strg+3</span> Anlagen · <span class="t">Strg+4</span> PDF-Editor · <span class="t">Strg+5</span> Akten · <span class="t">Strg+6</span> Mandanten · <span class="t">Strg+7</span> Versicherungen · <span class="t">Strg+8</span> Einstellungen (im Büronetz: Strg+8 Nachrichten, Strg+9 Einstellungen)'],
     ['Versicherungsschreiben', '<span class="t">Alt+S</span> Starten'],
     ['Anlagen-Assistent', '<span class="t">Alt+H</span> Dateien hinzufügen · <span class="t">Alt+L</span> Liste · <span class="t">Alt+↑/↓</span> verschieben · <span class="t">F2</span> Bezeichnung · <span class="t">Entf</span> entfernen · <span class="t">Alt+V</span> Vorschau · Doppelklick Seite bearbeiten · <span class="t">Alt+D</span> drehen · <span class="t">Alt+Ö</span> Seite löschen · <span class="t">Alt+G</span> eigene Anlage · <span class="t">Alt+T</span> OCR · <span class="t">Alt+E</span> PDF-Editor · <span class="t">Alt+R</span> Ausrichtung · <span class="t">Alt+P</span> Paket erstellen · <span class="t">Alt+O</span> Outlook · <span class="t">Alt+S</span> Hauptdokument · <span class="t">Alt+N</span> Neu'],
     ['PDF-Editor', '<span class="t">Strg+S</span> Speichern · <span class="t">Strg+Umschalt+S</span> Speichern unter · <span class="t">Strg+Enter</span> OK – Änderungen speichern · <span class="t">Strg+O</span> Öffnen · <span class="t">Strg+Z/Y</span> Rückgängig/Wiederholen · <span class="t">Strg+F</span> Suchen · <span class="t">F3</span> Weiter · <span class="t">Strg++/−</span> Zoom · <span class="t">Alt+M</span> vormerken · <span class="t">Alt+A</span> Schwärzungen anwenden']], [24, 76])}
@@ -344,6 +413,7 @@ Windows-Konten verwenden. Löschen: Programmordner und Datenordner (<span class=
 
 KAPITEL = ["1. Voraussetzungen und Installation", "2. Die Oberfläche", "3. Schreiben an eine Versicherung: PDF und Outlook-Entwurf",
            "4. PDF bearbeiten", "5. Anlagen-Assistent – Beispiel von Anfang bis Ende", "6. Akten, Mandanten und Versicherungen",
+           "6c. Posteingang, Aufgaben, „Was fehlt?“ und Versandkontrolle",
            "7. Häufige Probleme und Lösungen", "8. Bekannte Grenzen dieser Testversion", "9. Tastenkürzel",
            "10. Hersteller und Sicherheitsmeldungen"]
 

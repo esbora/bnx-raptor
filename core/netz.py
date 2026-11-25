@@ -62,6 +62,11 @@ LESEN = {
     "kanzlei": {"laden", "logo_pfad"},
     "benutzer": {"liste"},
     "nachrichten": {"kontakte", "verlauf", "nachricht", "status"},
+    "posteingang": {"personen", "vorhanden", "eingang", "liste", "aufgabe", "aufgaben", "uebersicht", "vorschlagen",
+                    "akten_infos",
+                    "aenderungsverlauf"},
+    "unterlagen": {"liste", "erwartung", "vorschlaege_fuer_eingang", "uebersicht", "vorlagen", "aenderungsverlauf"},
+    "versand": {"eintrag", "liste", "aenderungsverlauf"},
 }
 SCHREIBEN = {
     "journal": {"add", "bearbeitet_setzen", "akte_speichern"},
@@ -73,6 +78,11 @@ SCHREIBEN = {
     "benutzer": {"anlegen", "passwort_setzen", "rolle_setzen", "aktiv_setzen", "anzeigename_setzen",
                  "eigenes_passwort"},
     "nachrichten": {"senden", "gelesen"},
+    "posteingang": {"anlegen", "aendern", "zuordnen", "vorschlag_neu", "text_ergaenzen", "aufgabe_anlegen",
+                    "aufgabe_aendern", "erledigen", "wieder_oeffnen"},
+    "unterlagen": {"anlegen", "aendern", "angefordert_eintragen", "entwurf_vermerken", "eingang_verknuepfen",
+                   "vorlage_speichern", "vorlage_loeschen", "vorlage_anwenden", "akte_art_setzen"},
+    "versand": {"anlegen", "bestaetigen", "nicht_bestaetigt", "veraltet"},
 }
 
 
@@ -203,7 +213,13 @@ class Dienst:
                         "adressbuch": self.buch, "kanzlei": _ServerKanzlei(KanzleiStore(self.daten)),
                         "benutzer": bn.Benutzerverwaltung(con)}
         from core.nachrichten import Nachrichten
+        from core.posteingang import Posteingang
+        from core.unterlagen import Unterlagen
+        from core.versand import Versand
         self.objekte["nachrichten"] = Nachrichten(con)
+        self.objekte["posteingang"] = Posteingang(con)          # 0.5
+        self.objekte["unterlagen"] = Unterlagen(con)
+        self.objekte["versand"] = Versand(con)
         self.prot = pr.Protokoll(con)
         self.sitzungen: dict[str, dict] = {}
         self.nonces: dict[str, tuple[str, float]] = {}
@@ -663,11 +679,21 @@ class _PinHandler(urllib.request.HTTPSHandler):
         class Geprueft(http.client.HTTPSConnection):
             def connect(self):
                 super().connect()
-                if not hmac.compare_digest(zertifikat.fingerabdruck(self.sock.getpeercert(binary_form=True)), fp):
+                der = self.sock.getpeercert(binary_form=True)
+                if not hmac.compare_digest(zertifikat.fingerabdruck(der), fp):
                     self.close()
-                    raise ZertifikatFehler("Server-Zertifikat geändert; keine Daten übertragen.")
+                    raise ZertifikatFehler(zertifikat_meldung(ssl.DER_cert_to_PEM_cert(der)))
 
         return self.do_open(Geprueft, req, context=self._context)
+
+
+def zertifikat_meldung(pem: bytes | str) -> str:
+    """Deutlicher Text, wenn das vorgelegte Zertifikat nicht das bestätigte ist (nie akzeptiert)."""
+    name = zertifikat.scanner(pem) if pem else ""
+    if name:
+        return zertifikat.scanner_text(name)
+    return ("Server-Zertifikat geändert oder ungültig – keine Daten übertragen. Bitte am Hauptrechner unter "
+            "Einstellungen → Netzwerk den Kontrollcode prüfen und neu verbinden.")
 
 
 class Verbindung:
@@ -749,6 +775,15 @@ class Verbindung:
             except urllib.error.HTTPError as e:
                 return e.read(), dict(e.headers)
             except (urllib.error.URLError, OSError, TimeoutError) as e:
+                grund = getattr(e, "reason", e)
+                if isinstance(grund, ZertifikatFehler):
+                    raise grund from e
+                if isinstance(grund, ssl.SSLCertVerificationError) or isinstance(e, ssl.SSLCertVerificationError):
+                    try:
+                        pem = self.zertifikat_lesen()[0]
+                    except VerbindungFehler:
+                        pem = b""
+                    raise ZertifikatFehler(zertifikat_meldung(pem)) from e
                 raise VerbindungFehler(
                     f"Keine Verbindung zum Server ({self.adresse}). Ist der Server-Rechner eingeschaltet und "
                     "BnX-Raptor dort gestartet? Ihre Eingaben bleiben erhalten – es wurde nichts gespeichert.") from e
