@@ -89,7 +89,11 @@ def _ausgeschlossen(p: Path) -> bool:
 
 
 def _ist_pfad(text: str) -> bool:
-    return bool(re.match(r"^([A-Za-z]:[\\/]|\\\\)", text or ""))
+    """Mutlak dosya yolu mu? Windows: `C:\\…` ya da `\\\\sunucu\\…`. Başka sistemlerde (yalnızca testler,
+    ör. GitHub'daki Linux testleri) `/…` da kabul edilir; Windows'taki davranış değişmez."""
+    if re.match(r"^([A-Za-z]:[\\/]|\\\\)", text or ""):
+        return True
+    return os.name != "nt" and (text or "").startswith("/")
 
 
 def _os_meldung(e: OSError, ziel: Path | None = None) -> str:
