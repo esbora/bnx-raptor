@@ -1,6 +1,6 @@
-# Drittanbieter-Komponenten in BnX-Raptor 0.4.0
+# Drittanbieter-Komponenten in BnX-Raptor 0.4.3
 
-Stand: 17.11.2026 · **Entwurf – vor einer externen Weitergabe juristisch zu prüfen.**
+Stand: 20.11.2026 · **Vor einer externen Weitergabe juristisch zu prüfen.**
 
 - Vollständige Liste aller mitgelieferten Programmdateien mit Komponente, Lizenz und zugehörigem Lizenztext:
   **`DLL-LISTE.txt`** (wird bei jedem Build automatisch erzeugt).
@@ -10,9 +10,11 @@ Stand: 17.11.2026 · **Entwurf – vor einer externen Weitergabe juristisch zu p
   **`OCR-PAKETE.txt`**; die Lizenzdateien der Pakete in **`drittanbieter-ocr\<paket>\`**.
 - Quellcode der mitgelieferten GPL/LGPL-Bibliotheken der Texterkennung: Ordner **`..\quellcode-drittanbieter\`**.
 
-BnX-Raptor selbst: Lizenz **noch nicht festgelegt** (Entscheidung des Herstellers). Mit PyMuPDF/MuPDF unter
-AGPL-3.0 muss das Gesamtprogramm AGPL-3.0-kompatibel weitergegeben werden – oder es wird eine kommerzielle
-Artifex-Lizenz erworben.
+BnX-Raptor selbst: **AGPL-3.0**, vom Projektinhaber am 20.11.2026 gewählt (siehe `..\LICENSE` und
+`AGPL-3.0.txt`). PyMuPDF/MuPDF wird auf diesem AGPL-3.0-Weg genutzt; kein kommerzieller Artifex-Vertrag
+wird damit behauptet. Bei Weitergabe müssen der korrespondierende BnX-Raptor-Quellcode und alle Hinweise
+zugänglich sein. Die Quelldateien zu Qt/PySide6 und zur GCC-Laufzeit werden aus den offiziellen
+versionsgleichen Quellen in `..\quellcode-drittanbieter\` beigelegt (mit SHA-256).
 
 | Komponente | Version | Lizenz | Lizenztext |
 |---|---|---|---|
@@ -31,9 +33,11 @@ Artifex-Lizenz erworben.
 
 ## Offen vor einer externen Weitergabe
 
-1. Lizenz von BnX-Raptor festlegen (AGPL-3.0 oder kommerzielle Artifex-Lizenz für PyMuPDF/MuPDF).
-2. Bezugsweg für den Quellcode von Qt/PySide6 (LGPL-3.0) festlegen.
-3. GCC-Laufzeit (libgcc, libstdc++, libgomp): Einordnung unter der GCC Runtime Library Exception bestätigen;
-   Quellcode nicht beigelegt (Bezugsquelle in `..\quellcode-drittanbieter\LIESMICH.txt`).
-4. Microsoft-Bedingungen für die mitgelieferte VC++-Laufzeit prüfen.
-5. Juristische Prüfung insgesamt.
+1. Qt/PySide6 (LGPL-3.0): Quellen werden beigelegt; vor Weitergabe Nachbaubarkeit,
+   Lizenzbedingungen und Austauschbarkeit der dynamisch eingebundenen Bibliotheken prüfen.
+2. GCC-Laufzeit (libgcc, libstdc++, libgomp): Einordnung unter der GCC Runtime Library Exception bestätigen;
+   das passende Quellpaket wird beigelegt.
+3. Microsoft-Bedingungen für die mitgelieferte VC++-Laufzeit prüfen (Alternativen: belegte
+   Weitergabeberechtigung oder zulässige, vom Büro selbst installierte Laufzeit).
+4. AGPL-3.0-Quellcodeangebot und Pflichten aller Drittanbieter für die konkrete Weitergabe
+   abschließend rechtlich prüfen; bloße Beilage der Lizenztexte ersetzt die Prüfung nicht.

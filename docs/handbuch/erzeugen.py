@@ -1,4 +1,4 @@
-"""Erzeugt das deutsche Benutzerhandbuch: docs/Benutzerhandbuch_BnX-Raptor_0.4.2_DE.pdf
+"""Erzeugt das deutsche Benutzerhandbuch: docs/Benutzerhandbuch_BnX-Raptor_<Version>_DE.pdf
 
 Bilder: docs/handbuch/bilder/ – Bildschirmfotos des echten Programms mit fiktiven Daten (Testakte Mustermann,
 „Kanzlei Muster & Partner (fiktiv)“). Aufruf: python docs/handbuch/erzeugen.py
@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import io
 import json
+import sys
 from pathlib import Path
 
 import pymupdf
@@ -15,9 +16,14 @@ import pymupdf
 HIER = Path(__file__).resolve().parent
 KOK = HIER.parent.parent
 BILDER = HIER / "bilder"
-ZIEL = KOK / "docs" / "Benutzerhandbuch_BnX-Raptor_0.4.2_DE.pdf"
-H = json.loads((KOK / "docs" / "CRA" / "hersteller.json").read_text(encoding="utf-8"))
-VERSION = "0.4.2"
+sys.path.insert(0, str(KOK))
+from version import __version__ as VERSION  # noqa: E402
+ZIEL = KOK / "docs" / f"Benutzerhandbuch_BnX-Raptor_{VERSION}_DE.pdf"
+# Öffentliches Handbuch (liegt im öffentlichen GitHub-Repository): keine persönlichen Herstellerdaten.
+# Kontakt für Sicherheitsmeldungen = vertrauliche Meldung über GitHub (Private Vulnerability Reporting).
+REPO = "https://github.com/esbora/BnX-Raptor"
+H = {"name": f"BnX-Raptor-Projekt ({REPO})", "postanschrift": "OFFEN",
+     "betreff_sicherheitsmeldung": "BnX-Raptor – Sicherheitsmeldung"}
 
 CSS = """
 body { font-family: sans-serif; font-size: 10pt; line-height: 1.38; color: #283040; }
@@ -62,8 +68,8 @@ def tab(kopf, zeilen, breiten=None) -> str:
     return f"<table>{cols}<tr>{k}</tr>{z}</table>"
 
 
-SATZ_MELDUNG = (f"Bitte melden Sie mögliche Sicherheitslücken oder Sicherheitsvorfälle per E-Mail an "
-                f"{H['sicherheitskontakt']}. Verwenden Sie nach Möglichkeit den Betreff ‚{H['betreff_sicherheitsmeldung']}‘ "
+SATZ_MELDUNG = (f"Bitte melden Sie mögliche Sicherheitslücken oder Sicherheitsvorfälle vertraulich über "
+                f"{REPO}/security → „Report a vulnerability“ (nicht als öffentliches Issue) "
                 "und senden Sie keine vertraulichen Mandantendaten mit.")
 
 INHALT = f"""
@@ -240,9 +246,9 @@ Dokumente – auch aus anderen Ordnern – und die Einstellungen. Nichts muss au
 Sicherung gültig. Fehlende oder nicht lesbare Dokumente werden genannt ({ui('Details einblenden…')}).</li></ol>
 <p><b>Wiederherstellen:</b> {ui('Sicherung wiederherstellen…')} → Datei wählen. BnX-Raptor prüft die Datei und zeigt Datum
 und Anzahl der Datensätze (mit dem aktuellen Stand). Nach {ui('Wiederherstellen')} wird zuerst automatisch eine
-Sicherheitskopie des aktuellen Stands angelegt (Datenordner\Sicherheitskopien), dann werden Datenbank und Dokumente
+Sicherheitskopie des aktuellen Stands angelegt (Datenordner\\Sicherheitskopien), dann werden Datenbank und Dokumente
 gemeinsam ersetzt. Bricht etwas ab – auch durch Stromausfall –, wird der vorherige Stand automatisch zurückgeschrieben.
-Auf einem anderen Rechner werden fehlende Ordner nach Datenordner\Wiederhergestellt übernommen.</p>
+Auf einem anderen Rechner werden fehlende Ordner nach Datenordner\\Wiederhergestellt übernommen.</p>
 <div class='hinweis'>Im Mehrbenutzerbetrieb dürfen nur Administratoren sichern und wiederherstellen. Die Sicherung umfasst
 die gemeinsamen Daten aller Benutzer; das Speichern-Fenster öffnet sich am Rechner des Administrators (USB-Stick dort).
 Während einer Wiederherstellung kann an keinem Arbeitsplatz etwas geändert werden; danach laden alle neu.</div>
@@ -261,7 +267,8 @@ nach der Firewall: „Private Netzwerke“ anhaken → {ui('Zugriff zulassen')}.
 Sekretariat oder Rechtsanwalt, Anfangspasswort). Dort auch {ui('Rolle ändern…')}, {ui('Passwort zurücksetzen…')} und
 {ui('Deaktivieren / Aktivieren')}. Jeder kann sein Passwort unter {ui('Passwort ändern…')} ändern.</li>
 <li><b>Jeder weitere PC – drei Schritte:</b> Programm öffnen → {ui('Mit bestehender Kanzlei verbinden')} (die Kanzlei
-wird im Büronetz automatisch gefunden) → {ui('Verbinden')} → mit eigenem Benutzernamen anmelden. Danach verbindet sich
+wird im Büronetz automatisch gefunden) → {ui('Verbinden')} → mit eigenem Benutzernamen anmelden. Beim ersten Verbinden den
+<b>Kontrollcode</b> abtippen, den der Hauptrechner unter {ui('Einstellungen')} → Netzwerk zeigt (16 Zeichen). Danach verbindet sich
 der PC bei jedem Start von selbst. Ausführlich mit Bildern: <span class='t'>Mehrbenutzer_Einrichtung_DE.pdf</span>.</li></ol>
 {tab(['Rolle', 'Darf'], [
     ['Administrator', 'alles, zusätzlich Benutzer, Verbindungseinstellungen, Sicherung und Wiederherstellung'],
@@ -285,8 +292,17 @@ gespeichert.</li>
 <li><b>Wo läuft was?</b> Outlook-Entwürfe, Word-Umwandlung und Texterkennung (OCR) laufen immer am Rechner, an dem
 gearbeitet wird (Outlook und Word müssen dort installiert sein). Dokumente werden dafür als lokale Arbeitskopie
 geholt und nach dem Speichern zum Server zurückgeschrieben.</li></ul>
-<div class='hinweis'>Die Verbindung im Büronetz ist signiert (Passwörter werden nie übertragen), aber nicht verschlüsselt.
-Nur im eigenen, vertrauenswürdigen Büronetz verwenden – nicht über das Internet.</div>
+<h3>Nachrichten an Kolleginnen und Kollegen</h3>
+<p>Die Seite {ui('Nachrichten')} zeigt die Kolleginnen und Kollegen mit Rolle und Zahl ungelesener Nachrichten.
+Kontakt wählen, Nachricht eingeben, mit Enter senden (Umschalt+Enter: neue Zeile). In der Akte kann
+{ui('Nachricht zur Akte…')} die Akte und den Mandanten direkt verknüpfen. Eine Meldung im Programm und die
+Zahl neben {ui('Nachrichten')} weisen auf neue Nachrichten hin. „Gelesen“ erscheint erst, wenn die empfangende
+Person das Gespräch geöffnet hat.</p>
+{bild('netz_nachricht_hinweis.png', 'Neue Nachricht und ungelesene Zahl im Programm (fiktive Testdaten).', 470)}
+<p>Ist der Server nicht erreichbar, zeigt das Gespräch „Nicht gesendet“; der Text bleibt während dieser
+Programmsitzung erhalten. Nach dem Wiederverbinden wird mit derselben Kennung erneut gesendet. Schließen Sie das
+Programm bei einer noch nicht gesendeten Nachricht nicht, ohne den Text anderweitig zu sichern.</p>
+<div class='hinweis'>Die Verbindung im Büronetz ist mit TLS <b>verschlüsselt</b>. Der Hauptrechner erzeugt dafür einmalig ein eigenes Zertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der <b>Kontrollcode</b> vom Hauptrechner abgetippt; ändert sich das Zertifikat später, hält BnX-Raptor die Verbindung an und überträgt nichts. Nur im eigenen Büronetz verwenden – nicht über das Internet. Server und alle Arbeitsplätze müssen dieselbe Programmversion verwenden: für ein Update zuerst alle Arbeitsplätze schließen, Daten sichern, dann Hauptrechner und Arbeitsplätze gemeinsam aktualisieren.</div>
 
 <h2>7. Häufige Probleme und Lösungen</h2>
 {tab(['Problem', 'Ursache und Lösung'], [
@@ -320,7 +336,7 @@ Windows-Konten verwenden. Löschen: Programmordner und Datenordner (<span class=
     ['PDF-Editor', '<span class="t">Strg+S</span> Speichern · <span class="t">Strg+Umschalt+S</span> Speichern unter · <span class="t">Strg+Enter</span> OK – Änderungen speichern · <span class="t">Strg+O</span> Öffnen · <span class="t">Strg+Z/Y</span> Rückgängig/Wiederholen · <span class="t">Strg+F</span> Suchen · <span class="t">F3</span> Weiter · <span class="t">Strg++/−</span> Zoom · <span class="t">Alt+M</span> vormerken · <span class="t">Alt+A</span> Schwärzungen anwenden']], [24, 76])}
 
 <h2>10. Hersteller und Sicherheitsmeldungen</h2>
-<p>Hersteller: {e(H['name'])}{'' if H['postanschrift'] == 'OFFEN' else ', ' + e(H['postanschrift'])} · E-Mail: {e(H['email'])}</p>
+<p>Hersteller: {e(H['name'])}</p>
 <p><b>{e(SATZ_MELDUNG)}</b></p>
 <p class='k'>Drittanbieter-Hinweise und Lizenztexte: Ordner <span class='t'>BnX-Raptor\\lizenzen</span>.</p>
 """
@@ -374,7 +390,7 @@ def main() -> None:
         p.insert_text((54, seite.height - 30), f"BnX-Raptor {VERSION} – Benutzerhandbuch · Testversion · Seite {i + 1} von {n}",
                       fontsize=7.5, color=(0.42, 0.45, 0.5))
     doc.set_toc([[1, "Schnellstart", 1]] + [[1, k, seiten[k]] for k in KAPITEL if k in seiten])
-    doc.set_metadata({"title": f"BnX-Raptor {VERSION} – Benutzerhandbuch", "author": H["name"],
+    doc.set_metadata({"title": f"BnX-Raptor {VERSION} – Benutzerhandbuch", "author": "BnX-Raptor-Projekt",
                       "subject": "Benutzerhandbuch (Testversion)", "creator": "docs/handbuch/erzeugen.py"})
     ZIEL.parent.mkdir(parents=True, exist_ok=True)
     doc.save(ZIEL, garbage=3, deflate=True)

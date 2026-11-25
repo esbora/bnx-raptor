@@ -83,14 +83,15 @@ SPRACHDATEN = [  # (Datei, URL, SHA-256) – Tag 4.1.0, LSTM "best"-Modelle; osd
      "e19f2ae860792fdf372cf48d8ce70ae5da3c4052962fe22e9de1f680c374bb0e"),
 ]
 # Quellcode der (L)GPL-Bibliotheken unter den Tesseract-DLLs (unveränderte MSYS2-Quellpakete zu exakt diesen
-# Binärpaketen); wird dem Paket beigelegt (GPL-2.0 §3a, LGPL). GCC-Laufzeit (libgcc/libstdc++/libgomp, GPL-3.0 mit
-# Laufzeitausnahme) nicht beigelegt (107 MB) – Bezug: MSYS2_QUELLEN + mingw-w64-gcc-16.2.0-7.src.tar.zst.
+# Binärpaketen); wird dem Paket beigelegt (GPL-2.0 §3a, LGPL).
+# GCC-Laufzeit (libgcc/libstdc++/libgomp, GPL-3.0 mit Laufzeitausnahme): Quellpaket wird ebenfalls beigelegt.
 QUELLCODE = [
     ("mingw-w64-jbigkit-2.1-6.src.tar.zst", "64757867df26308c14d22b184aaecb43742c25ee8d24f18da51e3d1e09be8ac2"),
     ("mingw-w64-libiconv-1.19.1-1.src.tar.zst", "ed46bb1b524ad9bd9d843091bf7b18ab23e5cd21fef6de743c8c943bdc11dabe"),
     ("mingw-w64-gettext-1.0-1.src.tar.zst", "cca0d0c8f60353faccc5ad40405240014e4a7ccc8b1c6ca9f4626aef3097d26e"),
     ("mingw-w64-libunistring-1.4.2-1.src.tar.zst", "a5bafb360d5c13c5c52ef071d5a8288ce2345346b902f20ed6e9322766ec60eb"),
     ("mingw-w64-libidn2-2.3.8-5.src.tar.zst", "0d8c964fc0a203bd982070c736e0fad9ca53db409c95e215b907f8a384d2e3ec"),
+    ("mingw-w64-gcc-16.2.0-7.src.tar.zst", "bdd1b2cd820cd67d38b42a174180bdd589b80b97af1a8b042d6c4da9176bac93"),
 ]
 QUELL_ZIEL = BAU / "quellcode"
 QUELL_LIESMICH = r"""Quellcode zu mitgelieferten (L)GPL-Bibliotheken (Ordner ocr\)
@@ -106,7 +107,7 @@ Die folgenden Dateien sind die unveränderten MSYS2-Quellpakete (Originalquelle 
   libidn2-0.dll       → mingw-w64-libidn2-2.3.8-5        (LGPL-3.0-or-later ODER GPL-2.0-or-later)
 
 GCC-Laufzeit (libgcc_s_seh-1.dll, libstdc++-6.dll, libgomp-1.dll; GPL-3.0 mit GCC Runtime Library Exception):
-Quellpaket mingw-w64-gcc-16.2.0-7.src.tar.zst unter https://repo.msys2.org/mingw/sources/ (107 MB, nicht beigelegt).
+Quellpaket mingw-w64-gcc-16.2.0-7.src.tar.zst ist beigefügt (Originalquelle, Build-Anleitung und Patches).
 
 Die Archive sind mit Zstandard komprimiert (.tar.zst), z. B. mit 7-Zip zu öffnen.
 """

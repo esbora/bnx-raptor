@@ -117,7 +117,7 @@ FIREWALL_TEXT = (
 def _merken(cfg: dict, server: dict) -> None:
     from core.config import einstellung_speichern
     werte = {"modus": "client", "server_adresse": server["adresse"], "server_kanzlei": server.get("kanzlei", ""),
-             "server_rechner": server.get("rechner", "")}
+             "server_rechner": server.get("rechner", ""), "server_zertifikat": server["zertifikat"]}
     for k, v in werte.items():
         cfg[k] = v
         einstellung_speichern(k, v)
@@ -187,9 +187,12 @@ class VerbindenDialog(QDialog):
 
     def manuell(self):
         adr, ok = QInputDialog.getText(self, "Verbindungsadresse", "Adresse vom Hauptrechner (Einstellungen → "
-                                       f"Netzwerk), z. B. http://192.168.1.20:{netz.STANDARD_PORT}:")
+                                       f"Netzwerk), z. B. https://192.168.1.20:{netz.STANDARD_PORT}:")
         if ok and adr.strip():
-            self._pruefen(netz.Verbindung(adr.strip()).adresse)
+            try:
+                self._pruefen(netz.Verbindung(adr.strip()).adresse)
+            except netz.ZertifikatFehler as e:
+                theme.status_setzen(self.status, "fehler", str(e))
 
     def verbinden(self):
         it = self.liste.currentItem()
@@ -200,20 +203,40 @@ class VerbindenDialog(QDialog):
         self._pruefen(s["adresse"], s.get("alternativen") or [])
 
     def _pruefen(self, adresse: str, alternativen: list[str] | None = None):
-        info = None
+        v = None
+        pem = None
+        fp = ""
         for adr in [adresse, *(alternativen or [])]:
             try:
-                info = netz.Verbindung(adr).ping()
-                adresse = adr
+                v = netz.Verbindung(adr)
+                pem, fp = v.zertifikat_lesen()
                 break
             except netz.VerbindungFehler:
                 continue
-        if info is None:
-            theme.status_setzen(self.status, "fehler", f"Server nicht erreichbar ({adresse}). Hauptrechner "
-                                "eingeschaltet? BnX-Raptor dort geöffnet? Ggf. Windows-Firewall am Hauptrechner "
-                                "prüfen (siehe Anleitung). → „Erneut suchen“")
+        if pem is None:
+            theme.status_setzen(self.status, "fehler", f"TLS-Server nicht erreichbar ({adresse}). Bitte "
+                                "Hauptrechner und Windows-Firewall prüfen. → „Erneut suchen“")
             return
-        self.server = {"adresse": adresse, "kanzlei": info.get("kanzlei", ""), "rechner": info.get("rechner", "")}
+        # Kod burada bilerek gösterilmez: kullanıcı onu ana bilgisayarın ekranından okumalıdır.
+        from core import zertifikat
+        gefragt, ok = QInputDialog.getText(self, "Server-Identität prüfen",
+            "Einmalige Sicherheitsprüfung: Öffnen Sie am Hauptrechner Einstellungen → Netzwerk und tippen Sie\n"
+            "den dort angezeigten Kontrollcode (16 Zeichen, z. B. 1A2B 3C4D 5E6F 7A8B) hier ab.\n"
+            "Leerzeichen und Groß-/Kleinschreibung spielen keine Rolle.\n\nKontrollcode vom Hauptrechner:")
+        if not ok:
+            return
+        if not zertifikat.bestaetigung_passt(fp, gefragt):
+            theme.status_setzen(self.status, "fehler", "Kontrollcode stimmt nicht mit diesem Server überein – "
+                                "Verbindung abgebrochen. Bitte den Code am Hauptrechner erneut ablesen.")
+            return
+        try:
+            v.zertifikat_bestaetigen(fp)
+            info = v.ping()
+        except netz.VerbindungFehler as e:
+            theme.status_setzen(self.status, "fehler", str(e))
+            return
+        self.server = {"adresse": v.adresse, "kanzlei": info.get("kanzlei", ""),
+                       "rechner": info.get("rechner", ""), "zertifikat": pem.decode("ascii")}
         _merken(self.cfg, self.server)
         self.accept()
 
@@ -222,13 +245,17 @@ def verbinden(cfg: dict, server_laeuft: bool) -> netz.Verbindung | None:
     """Beim Start: Server-Rechner → eigener Dienst; Arbeitsplatz → gemerkter Server (bei geänderter Adresse
     automatisch neu gefunden). Danach Anmeldung mit eigenem Benutzernamen."""
     if cfg.get("modus") == "server":
-        v = netz.Verbindung(f"127.0.0.1:{int(cfg.get('server_port') or netz.STANDARD_PORT)}")
+        from core.config import data_dir
+        cert = (data_dir(cfg) / "tls" / "server.pem").read_bytes()
+        v = netz.Verbindung(f"127.0.0.1:{int(cfg.get('server_port') or netz.STANDARD_PORT)}", cert_pem=cert)
     else:
-        if not cfg.get("server_adresse"):
-            dlg = VerbindenDialog(None, cfg)
+        if not cfg.get("server_zertifikat") or not cfg.get("server_adresse") \
+                or str(cfg.get("server_adresse", "")).lower().startswith("http://"):
+            dlg = VerbindenDialog(None, cfg, "Alte oder unbestätigte Verbindung: Bitte Server-Zertifikat "
+                                             "erneut am Hauptrechner prüfen.")
             if dlg.exec() != QDialog.Accepted:
                 return None
-        v = netz.Verbindung(cfg.get("server_adresse") or "")
+        v = netz.Verbindung(cfg.get("server_adresse") or "", cert_pem=cfg.get("server_zertifikat"))
     while True:
         try:
             info = v.ping()
@@ -240,21 +267,36 @@ def verbinden(cfg: dict, server_laeuft: bool) -> netz.Verbindung | None:
             from core.config import einstellung_speichern
             einstellung_speichern("letzter_benutzer", (v.benutzer or {}).get("name", ""))
             return v
-        except netz.VerbindungFehler:
-            if cfg.get("modus") == "client":
-                # Adresse geändert (z. B. neue IP)? Gleiche Kanzlei automatisch wiederfinden.
+        except netz.VerbindungFehler as fehler:
+            if cfg.get("modus") == "client" and not isinstance(fehler, netz.ZertifikatFehler):
+                # Keşif güvenilir değildir: yeni adreste yalnızca kayıtlı sertifika doğrulanır.
+                gefunden = False
                 for s in netz.suchen(2.0):
-                    if s["rechner"] == cfg.get("server_rechner") and s["adresse"] != v.adresse:
-                        _merken(cfg, {**s, "kanzlei": s["kanzlei"] or cfg.get("server_kanzlei", "")})
-                        v = netz.Verbindung(s["adresse"])
+                    if s["rechner"] != cfg.get("server_rechner"):
+                        continue
+                    for adr in [s["adresse"], *s.get("alternativen", [])]:
+                        if adr == v.adresse:
+                            continue
+                        try:
+                            neu_v = netz.Verbindung(adr, cert_pem=cfg["server_zertifikat"])
+                            neu_info = neu_v.ping()
+                        except netz.VerbindungFehler:
+                            continue
+                        _merken(cfg, {"adresse": adr, "kanzlei": neu_info.get("kanzlei", ""),
+                                      "rechner": neu_info.get("rechner", ""),
+                                      "zertifikat": cfg["server_zertifikat"]})
+                        v = neu_v
+                        gefunden = True
                         break
-                else:
-                    s = None
-                if s:
+                    if gefunden:
+                        break
+                if gefunden:
                     continue
-            box = QMessageBox(QMessageBox.Warning, "BnX-Raptor – Server nicht erreichbar",
-                              "Server nicht erreichbar." if cfg.get("modus") == "client" else
-                              "Der eigene Server-Dienst antwortet nicht.")
+            box = QMessageBox(QMessageBox.Warning, "BnX-Raptor – Verbindung gesperrt",
+                              ("Server-Zertifikat geändert oder ungültig. Keine Daten übertragen. "
+                               "Bitte Identität am Hauptrechner prüfen." if isinstance(fehler, netz.ZertifikatFehler)
+                               else "Server nicht erreichbar." if cfg.get("modus") == "client" else
+                               "Der eigene Server-Dienst antwortet nicht."))
             box.setInformativeText(
                 f"Kanzlei: {cfg.get('server_kanzlei') or '–'} (Rechner {cfg.get('server_rechner') or '–'})\n"
                 "Bitte den Hauptrechner einschalten und BnX-Raptor dort öffnen.\n\n" + FIREWALL_TEXT)
@@ -267,7 +309,7 @@ def verbinden(cfg: dict, server_laeuft: bool) -> netz.Verbindung | None:
             if neu is not None and box.clickedButton() is neu:
                 dlg = VerbindenDialog(None, cfg)
                 if dlg.exec() == QDialog.Accepted:
-                    v = netz.Verbindung(cfg["server_adresse"])
+                    v = netz.Verbindung(cfg["server_adresse"], cert_pem=cfg["server_zertifikat"])
                 continue
             if box.clickedButton() is not erneut:
                 return None
@@ -631,6 +673,20 @@ class NetzEinstellungen(QWidget):
             zeile.addWidget(b_kopie)
             zeile.addStretch(1)
             lay.addLayout(zeile)
+            from core import zertifikat
+            from core.config import data_dir
+            cert_datei = data_dir(cfg) / "tls" / "server.pem"
+            if cert_datei.is_file():
+                fp = zertifikat.fingerabdruck(cert_datei.read_bytes())
+                kennung = QLabel("<b>Kontrollcode für neue Arbeitsplätze:</b> "
+                                 f"<span style='font-size:15pt; font-family:Consolas,monospace'><b>"
+                                 f"{zertifikat.kurz(fp)}</b></span><br>"
+                                 "<span style='color:#6B7280'>Vollständiger SHA-256-Fingerabdruck des TLS-Zertifikats: "
+                                 f"{fp}</span>")
+                kennung.setWordWrap(True)
+                kennung.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                kennung.setAccessibleName("Vollständiger Server-Zertifikat-Fingerabdruck")
+                lay.addWidget(kennung)
             auto = theme.rolle(QLabel("Weitere PCs finden diesen PC automatisch: dort „Mit bestehender Kanzlei "
                                       "verbinden“ wählen. Die Adresse wird nur gebraucht, wenn die automatische Suche "
                                       "nichts findet."), "gedimmt")

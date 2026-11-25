@@ -12,13 +12,18 @@ from core.benutzer import Berechtigung
 from core.sicherung import SicherungFehler
 
 
+def server_cert(adr):
+    # Yalnızca testte: gerçek kullanıcı sertifikayı sunucu ekranından doğrulamalıdır.
+    return netz.Verbindung(adr).zertifikat_lesen()[0]
+
+
 @pytest.fixture()
 def server(tmp_path):
     daten = tmp_path / "Server-Daten"
     daten.mkdir()
     d = netz.Dienst(daten, tmp_path, port=0, host="127.0.0.1", version="0.4.2").starten()
-    adr = f"http://127.0.0.1:{d.port}"
-    admin = netz.Verbindung(adr)
+    adr = f"https://127.0.0.1:{d.port}"
+    admin = netz.Verbindung(adr, cert_pem=d.cert_pem)
     assert admin.ping()["benutzer_vorhanden"] is False
     admin.erster_admin("chef", "Admin-Passwort-1", "Chefin")
     admin.anmelden("chef", "Admin-Passwort-1")
@@ -29,7 +34,7 @@ def server(tmp_path):
 
 
 def _client(adr, name, pw, tmp, unter):
-    v = netz.Verbindung(adr)
+    v = netz.Verbindung(adr, cert_pem=server_cert(adr))
     v.anmelden(name, pw)
     k = netz.Arbeitskopien(v, tmp / unter)
     k.direkt = False                                   # Test: wie ein anderer Rechner (keine Direktpfade)
@@ -153,9 +158,9 @@ def test_rechte_anmeldung_und_sicherheit(server):
     with pytest.raises(Berechtigung, match="Unbekannte Funktion"):
         sek.aufrufen("journal", "con")
     with pytest.raises(ValueError, match="falsch"):
-        netz.Verbindung(adr).anmelden("anna", "falsch-falsch")
+        netz.Verbindung(adr, cert_pem=server_cert(adr)).anmelden("anna", "falsch-falsch")
     with pytest.raises(ValueError, match="falsch"):
-        netz.Verbindung(adr).anmelden("gibtsnicht", "egal-egal")
+        netz.Verbindung(adr, cert_pem=server_cert(adr)).anmelden("gibtsnicht", "egal-egal")
     # manipulierte Signatur / wiederholte Anfrage werden abgewiesen
     sek.schluessel = b"x" * 32
     sek._anmeldung = None
@@ -171,7 +176,7 @@ def test_rechte_anmeldung_und_sicherheit(server):
     with pytest.raises(netz.SitzungFehler):
         netz._Fern(sek2, "stammdaten").mandanten()
     with pytest.raises(ValueError):
-        netz.Verbindung(adr).anmelden("anna", "Sekretariat-1")
+        netz.Verbindung(adr, cert_pem=server_cert(adr)).anmelden("anna", "Sekretariat-1")
     assert any(e["benutzer"] == "Anna (Sekretariat)" for e in ra.aenderungen(0)["eintraege"])
     # letzter Administrator kann nicht deaktiviert werden
     chef = next(b for b in admin.aufrufen("benutzer", "liste") if b["name"] == "chef")
@@ -186,8 +191,8 @@ def test_rechte_anmeldung_und_sicherheit(server):
     ra_id = next(b for b in admin.aufrufen("benutzer", "liste") if b["name"] == "ra")["id"]
     admin.aufrufen("benutzer", "passwort_setzen", [ra_id, "Neues-Passwort-9"])
     with pytest.raises(ValueError):
-        netz.Verbindung(adr).anmelden("ra", "Anwalt-Passwort-1")
-    netz.Verbindung(adr).anmelden("ra", "Neues-Passwort-9")
+        netz.Verbindung(adr, cert_pem=server_cert(adr)).anmelden("ra", "Anwalt-Passwort-1")
+    netz.Verbindung(adr, cert_pem=server_cert(adr)).anmelden("ra", "Neues-Passwort-9")
 
 
 def test_verbindung_weg_und_wieder_da(server, tmp_path):
@@ -225,10 +230,10 @@ def test_zentrale_sicherung_und_wiederherstellung_in_anderer_umgebung(server):
     test.mkdir()
     d2 = netz.Dienst(test, test, port=0, host="127.0.0.1", version="0.4.2").starten()
     try:
-        a2 = netz.Verbindung(f"http://127.0.0.1:{d2.port}")
+        a2 = netz.Verbindung(f"https://127.0.0.1:{d2.port}", cert_pem=d2.cert_pem)
         a2.erster_admin("admin2", "Admin-Passwort-2")
         a2.anmelden("admin2", "Admin-Passwort-2")
-        ra_test = netz.Verbindung(f"http://127.0.0.1:{d2.port}")
+        ra_test = netz.Verbindung(f"https://127.0.0.1:{d2.port}", cert_pem=d2.cert_pem)
         ra_test.anmelden("admin2", "Admin-Passwort-2")
         vorher_gen = ra_test.aenderungen(0)["generation"]
         p = a2.sicherung_pruefen(usb.read_bytes())
@@ -236,7 +241,7 @@ def test_zentrale_sicherung_und_wiederherstellung_in_anderer_umgebung(server):
         erg = a2.sicherung_wiederherstellen(p["token"])
         assert Path(erg["sicherheitskopie"]).exists()
         # Benutzer kommen aus der Sicherung → mit den Benutzern des Originals anmelden
-        neu = netz.Verbindung(f"http://127.0.0.1:{d2.port}")
+        neu = netz.Verbindung(f"https://127.0.0.1:{d2.port}", cert_pem=d2.cert_pem)
         neu.anmelden("anna", "Sekretariat-1")
         assert [x["name"] for x in netz._Fern(neu, "stammdaten").mandanten()] == ["Gesichert GmbH"]
         dok = netz._Fern(neu, "archiv").liste(akte="S-1")[0]
@@ -280,7 +285,7 @@ def test_automatische_suche_findet_server(server):
     erreichbar = []
     for a in [gefunden[0]["adresse"], *gefunden[0]["alternativen"]]:       # Dienst hört hier nur auf 127.0.0.1
         try:
-            erreichbar.append(netz.Verbindung(a).ping()["kanzlei"])
+            erreichbar.append(netz.Verbindung(a, cert_pem=d.cert_pem).ping()["kanzlei"])
         except netz.VerbindungFehler:
             pass
     assert erreichbar == ["Kanzlei Fiktiv"]
@@ -367,7 +372,7 @@ def test_nachrichten_senden_lesen_rechte_und_keine_doppelung(server):
 
 def test_gleichzeitige_anmeldung_desselben_benutzers(server):
     d, adr, admin, tmp = server
-    a, b = netz.Verbindung(adr), netz.Verbindung(adr)
+    a, b = netz.Verbindung(adr, cert_pem=server_cert(adr)), netz.Verbindung(adr, cert_pem=server_cert(adr))
     sa = a._json("/anmelden/start", {"name": "anna"}, signiert=False)[0]
     sb = b._json("/anmelden/start", {"name": "anna"}, signiert=False)[0]      # zweiter PC fast gleichzeitig
     from core import benutzer as bn
@@ -376,3 +381,22 @@ def test_gleichzeitige_anmeldung_desselben_benutzers(server):
         erg, _ = v._json("/anmelden/ende", {"name": "anna", "nonce": s["nonce"], "beweis": bn.beweis(k, s["nonce"])},
                          signiert=False)
         assert erg["benutzer"]["name"] == "anna"
+
+
+def test_kontrollcode_bestaetigung_tolerant_aber_streng():
+    from core import zertifikat
+    fp = ":".join(["AB", "CD", "EF", "01"] * 8)          # 32 Bytes = 64 Hex-Zeichen
+    kurz = zertifikat.kurz(fp)
+    assert kurz == "ABCD EF01 ABCD EF01"
+    # Kurzcode vom Hauptrechner, egal wie geschrieben
+    assert zertifikat.bestaetigung_passt(fp, kurz)
+    assert zertifikat.bestaetigung_passt(fp, "abcdef01abcdef01")
+    assert zertifikat.bestaetigung_passt(fp, " ab:cd-ef 01 ab cd ef 01 ")
+    # vollständiger Fingerabdruck mit oder ohne Doppelpunkte
+    assert zertifikat.bestaetigung_passt(fp, fp)
+    assert zertifikat.bestaetigung_passt(fp, fp.replace(":", "").lower())
+    # falsch, zu kurz, leer
+    assert not zertifikat.bestaetigung_passt(fp, "ABCD EF01 ABCD EF02")
+    assert not zertifikat.bestaetigung_passt(fp, "ABCD EF01")
+    assert not zertifikat.bestaetigung_passt(fp, "")
+    assert not zertifikat.bestaetigung_passt("", kurz)

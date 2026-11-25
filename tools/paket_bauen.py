@@ -91,7 +91,7 @@ ZUORDNUNG = [
 
 
 Q = "quellcode-drittanbieter/"
-GCC = "GPL-3.0.txt, drittanbieter/GCC-Runtime-Exception-3.1.txt; Quellcode: https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.2.0-7.src.tar.zst (nicht beigelegt) – juristisch bestätigen"
+GCC = "GPL-3.0.txt, drittanbieter/GCC-Runtime-Exception-3.1.txt; Quellcode: quellcode-drittanbieter/mingw-w64-gcc-16.2.0-7.src.tar.zst – Laufzeitausnahme juristisch bestätigen"
 OCR_ZUSATZ = {  # MSYS2-Paket → zusätzliche Lizenztexte/Quellcode (neben lizenzen/drittanbieter-ocr/<paket>/)
     "jbigkit": "drittanbieter/JBIG-KIT-COPYING.txt, drittanbieter/JBIG-KIT-jbig.c-Lizenzkopf.txt; Quellcode: " + Q + "mingw-w64-jbigkit-2.1-6.src.tar.zst",
     "libiconv": "Quellcode: " + Q + "mingw-w64-libiconv-1.19.1-1.src.tar.zst",
@@ -146,7 +146,9 @@ def pruefen(paket: Path) -> list[str]:
     for pflicht in ("BnX-Raptor.exe", "ocr/tesseract.exe", "ocr/tessdata/deu.traineddata",
                     "ocr/tessdata/tur.traineddata", "ocr/tessdata/eng.traineddata", "ocr/tessdata/osd.traineddata",
                     "ocr/tessdata/configs/tsv", "lizenzen/DRITTANBIETER.md", "config.example.json",
-                    "quellcode-drittanbieter/mingw-w64-jbigkit-2.1-6.src.tar.zst", "lizenzen/OCR-PAKETE.json",
+                    "quellcode-drittanbieter/mingw-w64-jbigkit-2.1-6.src.tar.zst",
+                    "quellcode-drittanbieter/mingw-w64-gcc-16.2.0-7.src.tar.zst",
+                    "LICENSE", "lizenzen/AGPL-3.0.txt", "lizenzen/OCR-PAKETE.json",
                     "_internal/pymupdf"):
         if not (paket / pflicht).exists():
             fehler.append(f"fehlt: {pflicht}")
@@ -173,6 +175,7 @@ def main() -> None:
         shutil.copytree(BAU / "quellcode", paket / "quellcode-drittanbieter")
     fehlend = lizenzen_sammeln(paket / "lizenzen")
     shutil.copy2(KOK / "config.example.json", paket / "config.example.json")
+    shutil.copy2(KOK / "LICENSE", paket / "LICENSE")
     liste, offen = dll_liste(paket)
     (paket / "lizenzen" / "DLL-LISTE.txt").write_text(liste, encoding="utf-8")
     print(f"DLL-Liste: {liste.count(chr(10)) - 2} Binärdateien, davon {offen} mit offenem Lizenzpunkt")

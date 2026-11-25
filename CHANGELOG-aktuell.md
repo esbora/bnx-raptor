@@ -1,3 +1,10 @@
+## BnX-Raptor 0.4.3
+
+- Büronetz: TLS-Verschlüsselung mit automatisch erzeugtem Serverzertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der Kontrollcode abgetippt, den der Hauptrechner unter Einstellungen → Netzwerk anzeigt (16 Zeichen; Leerzeichen und Groß-/Kleinschreibung egal). Ändert sich das Zertifikat später, wird die Verbindung angehalten und nichts übertragen. Keine manuelle Zertifikatsinstallation erforderlich.
+- Die automatische Kanzleisuche bleibt erhalten; der Hauptrechner und die Arbeitsplätze müssen gemeinsam auf diese Version aktualisiert werden. Die Verbindung zum vorherigen unverschlüsselten Server wird nicht fortgesetzt.
+- Lizenz- und Quellcodehinweise für die AGPL-3.0-Freigabe ergänzt; die passenden Quellen von Qt/PySide6 und GCC werden der Auslieferung beigelegt.
+- Benutzerhandbuch und Kurzanleitung „Mehrere Arbeitsplätze“ auf Version 0.4.3 aktualisiert (Verschlüsselung, Kontrollcode). Sicherheitsmeldungen vertraulich über die GitHub-Seite des Projekts.
+
 ## BnX-Raptor 0.4.2
 
 - Mehrere Arbeitsplätze im Büronetz – ganz einfach: Einstellungen → Netzwerk → „Daten auf diesem PC bereitstellen“ (Hauptrechner) bzw. „Mit bestehender Kanzlei verbinden“. Ein neuer PC fragt beim ersten Start danach; die Kanzlei wird im Büronetz automatisch gefunden (keine Adresse eintippen), danach anmelden. Der PC merkt sich die Kanzlei und verbindet sich bei jedem Start von selbst – auch wenn sich die Adresse des Hauptrechners ändert. Findet die Suche nichts: „Verbindungsadresse eingeben…“ (am Hauptrechner mit „Kopieren“). Klare Meldungen („Server nicht erreichbar“, „Erneut versuchen“) und die nötigen Schritte für die Windows-Firewall auf Deutsch. Der Hauptrechner verwaltet Datenbank und Dokumente allein (kein gleichzeitiges Öffnen der SQLite-Datei über Freigaben oder OneDrive); keine Zusatzsoftware. Vorhandene Daten bleiben erhalten. Hinweis: Die Verbindung ist für das eigene Büronetz gedacht und nicht verschlüsselt.

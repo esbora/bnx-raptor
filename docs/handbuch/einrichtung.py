@@ -6,6 +6,7 @@ Aufruf: python docs/handbuch/einrichtung.py
 from __future__ import annotations
 
 import io
+import sys
 from pathlib import Path
 
 import pymupdf
@@ -14,6 +15,8 @@ HIER = Path(__file__).resolve().parent
 KOK = HIER.parent.parent
 BILDER = HIER / "bilder"
 ZIEL = KOK / "docs" / "Mehrbenutzer_Einrichtung_DE.pdf"
+sys.path.insert(0, str(KOK))
+from version import __version__ as VERSION  # noqa: E402
 
 CSS = """
 body { font-family: sans-serif; font-size: 10.5pt; line-height: 1.4; color: #283040; }
@@ -42,7 +45,7 @@ def bild(datei: str, text: str, breite: int = 330) -> str:
 
 INHALT = f"""
 <h1>BnX-Raptor – mehrere Arbeitsplätze</h1>
-<p class='k'>Kurzanleitung, Version 0.4.2 · Bildschirmfotos mit fiktiven Daten</p>
+<p class='k'>Kurzanleitung, Version {VERSION} · Bildschirmfotos mit fiktiven Daten</p>
 
 <div class='wichtig'><b>Wichtig:</b> Der <b>Hauptrechner</b> stellt die gemeinsamen Daten bereit. Er muss eingeschaltet
 sein und BnX-Raptor muss dort geöffnet sein, solange an den anderen PCs gearbeitet wird.</div>
@@ -55,6 +58,7 @@ sein und BnX-Raptor muss dort geöffnet sein, solange an den anderen PCs gearbei
 anhaken → {ui('Zugriff zulassen')}. Wurde die Frage weggeklickt: Start → „Windows-Sicherheit“ → „Firewall- &amp;
 Netzwerkschutz“ → „Zugriff von App durch Firewall zulassen“ → „Einstellungen ändern“ → bei „BnX-Raptor“ den Haken
 unter „Privat“ setzen.</li>
+<li><b>Kontrollcode:</b> {ui('Einstellungen')} → Netzwerk zeigt einen <b>Kontrollcode</b> (16 Zeichen, z. B. <span class='k'>1A2B 3C4D 5E6F 7A8B</span>). Diesen Code braucht jeder neue Arbeitsplatz einmalig.</li>
 <li>{ui('Einstellungen')} → {ui('Benutzer verwalten…')} → für jede Person {ui('Neuer Benutzer…')} (Rolle Sekretariat
 oder Rechtsanwalt).</li></ol>
 {bild('netz_server.png', 'Hauptrechner: Verbindungsadresse mit „Kopieren“ – nur nötig, wenn die automatische Suche '
@@ -63,7 +67,7 @@ oder Rechtsanwalt).</li></ol>
 <h2>B) Jeder weitere PC – drei Schritte</h2>
 <ol><li><b>Programm öffnen.</b> Beim ersten Start fragt BnX-Raptor, wie der PC arbeiten soll.</li>
 <li><b>Mit der Kanzlei verbinden:</b> {ui('Mit bestehender Kanzlei verbinden')} → die Kanzlei wird im Büronetz
-automatisch gefunden → {ui('Verbinden')}.</li>
+automatisch gefunden → {ui('Verbinden')} → den <b>Kontrollcode vom Hauptrechner</b> abtippen (nicht aus einer E-Mail oder Nachricht übernehmen; Leerzeichen und Groß-/Kleinschreibung sind egal).</li>
 <li><b>Anmelden</b> mit eigenem Benutzernamen und Passwort.</li></ol>
 {bild('netz_willkommen.png', 'Schritt 1: erster Start auf dem neuen PC.', 300)}
 {bild('netz_gefunden.png', 'Schritt 2: Kanzlei gefunden – „Verbinden“.', 300)}
@@ -80,7 +84,7 @@ automatisch gefunden → {ui('Verbinden')}.</li>
 <b>nicht gespeichert</b>. Sobald der Hauptrechner wieder da ist, wird automatisch gespeichert. Hat jemand dasselbe
 Feld inzwischen geändert, zeigt BnX-Raptor beide Fassungen zum Vergleich.</li>
 <li>Outlook-Entwürfe, Word-Umwandlung und Texterkennung laufen an dem PC, an dem gearbeitet wird.</li></ul>
-<p class='k'>Die Verbindung ist für das eigene Büronetz gedacht (nicht über das Internet verwenden).</p>
+<div class='hinweis'>Die Verbindung im Büronetz ist mit TLS <b>verschlüsselt</b>. Der Hauptrechner erzeugt dafür einmalig ein eigenes Zertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der <b>Kontrollcode</b> vom Hauptrechner abgetippt; ändert sich das Zertifikat später, hält BnX-Raptor die Verbindung an und überträgt nichts. Nur im eigenen Büronetz verwenden – nicht über das Internet. Server und alle Arbeitsplätze müssen dieselbe Programmversion verwenden: für ein Update zuerst alle Arbeitsplätze schließen, Daten sichern, dann Hauptrechner und Arbeitsplätze gemeinsam aktualisieren.</div>
 """
 
 

@@ -11,3 +11,9 @@ config.json
 
 # Trailer-Video nicht versionieren (nicht veröffentlichen ohne Freigabe)
 docs/marketing/*.mp4
+
+# graphify kod haritası (yalnızca yerel)
+graphify-out/
+
+# CRA belgeleri yalnızca yerel (üretici adı/e-postası içerir; proje sahibinin kararı 2026-11-25)
+docs/CRA/

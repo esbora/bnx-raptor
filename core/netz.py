@@ -2,7 +2,7 @@
 
 Ein Rechner läuft als „Server“: Nur dieser Prozess öffnet die SQLite-Datenbank und die Dokumentablage
 (kein gleichzeitiges Öffnen der Datenbankdatei über Netzwerkfreigaben oder OneDrive). Die anderen Rechner
-(„Mit Server verbinden“) – und die Oberfläche auf dem Server selbst – arbeiten über einen kleinen HTTP-Dienst:
+(„Mit Server verbinden“) – und die Oberfläche auf dem Server selbst – arbeiten über einen TLS-Dienst:
 
 - Anmeldung per Challenge-Response (PBKDF2 + HMAC) – das Passwort wird nie übertragen.
 - Jede Anfrage ist mit einem Sitzungsschlüssel signiert und fortlaufend nummeriert (keine Übernahme fremder
@@ -11,7 +11,7 @@ Ein Rechner läuft als „Server“: Nur dieser Prozess öffnet die SQLite-Daten
   Versionsprüfung zurück (gleichzeitige Bearbeitung → Konfliktkopie, nichts geht verloren).
 - „Änderungen seit …“ für die automatische Aktualisierung; Wartungsmodus während einer Wiederherstellung.
 
-Hinweis: Die Verbindung ist signiert, aber nicht verschlüsselt – nur im vertrauenswürdigen Büronetz verwenden.
+Der TLS-Fingerabdruck muss vor der ersten Anmeldung am Server verglichen und bestätigt werden.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import base64
 import contextlib
 import dataclasses
 import hashlib
+import http.client
 import hmac
 import json
 import logging
@@ -27,18 +28,21 @@ import re
 import secrets
 import shutil
 import socket
+import ssl
 import sqlite3
 import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from core import benutzer as bn
 from core import protokoll as pr
+from core import zertifikat
 
 LOG = logging.getLogger(__name__)
 STANDARD_PORT = 47310
@@ -73,6 +77,10 @@ SCHREIBEN = {
 
 
 class VerbindungFehler(Exception):
+    pass
+
+
+class ZertifikatFehler(VerbindungFehler):
     pass
 
 
@@ -165,7 +173,7 @@ def lokale_adressen(port: int) -> list[str]:
         pass
     ips = sorted((i for i in ips if not i.startswith("127.")), key=lambda i: (i != standard, i))
     name = socket.gethostname()
-    return [f"http://{i}:{port}" for i in ips] + [f"http://{name}:{port}"]
+    return [f"https://{i}:{port}" for i in ips] + [f"https://{name}:{port}"]
 
 
 def _signatur(schluessel: bytes, pfad: str, zaehler: int, meta: str, body: bytes) -> str:
@@ -209,7 +217,15 @@ class Dienst:
         class Handler(_Handler):
             pass
         Handler.dienst = dienst
+        cert, key, _ = zertifikat.sicherstellen(self.daten, [urllib.parse.urlsplit(a).hostname
+                                                             for a in lokale_adressen(port or STANDARD_PORT)])
+        self.cert_pem = cert.read_bytes()
+        self.fingerabdruck = zertifikat.fingerabdruck(self.cert_pem)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.minimum_version = ssl.TLSVersion.TLSv1_2
+        tls.load_cert_chain(str(cert), str(key))
         self.http = ThreadingHTTPServer((host, port), Handler)
+        self.http.socket = tls.wrap_socket(self.http.socket, server_side=True)
         self.http.daemon_threads = True
         self.port = self.http.server_address[1]
         self._thread: threading.Thread | None = None
@@ -631,15 +647,43 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 # =========================================================================== CLIENT
+class _KeineWeiterleitung(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ZertifikatFehler("Server hat eine Weiterleitung gesendet; keine Daten übertragen.")
+
+
+class _PinHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext, fingerabdruck: str):
+        super().__init__(context=context)
+        self._fp = fingerabdruck
+
+    def https_open(self, req):
+        fp = self._fp
+
+        class Geprueft(http.client.HTTPSConnection):
+            def connect(self):
+                super().connect()
+                if not hmac.compare_digest(zertifikat.fingerabdruck(self.sock.getpeercert(binary_form=True)), fp):
+                    self.close()
+                    raise ZertifikatFehler("Server-Zertifikat geändert; keine Daten übertragen.")
+
+        return self.do_open(Geprueft, req, context=self._context)
+
+
 class Verbindung:
-    def __init__(self, adresse: str, timeout: float = 15.0):
+    def __init__(self, adresse: str, timeout: float = 15.0, cert_pem: bytes | str | None = None):
         a = (adresse or "").strip().rstrip("/")
-        if a and not re.match(r"^https?://", a):
-            a = "http://" + a
-        if a and not re.search(r":\d+$", a.split("//", 1)[-1]):
-            a += f":{STANDARD_PORT}"
-        self.adresse = a
+        if a and "://" not in a:
+            a = "https://" + a
+        url = urllib.parse.urlsplit(a)
+        if url.scheme != "https" or not url.hostname or url.username or url.password or url.path or url.query \
+                or url.fragment:
+            raise ZertifikatFehler("Nur HTTPS-Adressen ohne Zugangsdaten sind erlaubt. Alte HTTP-Adressen müssen "
+                                   "über die Server-Einstellungen neu verbunden werden.")
+        self.adresse = f"https://{url.netloc}" if url.port else f"https://{url.netloc}:{STANDARD_PORT}"
         self.timeout = timeout
+        self.cert_pem = cert_pem.encode() if isinstance(cert_pem, str) else cert_pem
+        self.fingerabdruck = zertifikat.fingerabdruck(self.cert_pem) if self.cert_pem else ""
         self.sitzung = ""
         self.schluessel = b""
         self.zaehler = 0
@@ -647,12 +691,39 @@ class Verbindung:
         self._lock = threading.Lock()
         self._anmeldung: tuple[str, str] | None = None
 
+    def zertifikat_lesen(self) -> tuple[bytes, str]:
+        """Yalnızca kimlik önizlemesi; doğrulama yapılmadan uygulama isteği gönderilmez."""
+        url = urllib.parse.urlsplit(self.adresse)
+        try:
+            with socket.create_connection((url.hostname, url.port), timeout=self.timeout) as raw:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                with ctx.wrap_socket(raw, server_hostname=url.hostname) as tls:
+                    der = tls.getpeercert(binary_form=True)
+                    return ssl.DER_cert_to_PEM_cert(der).encode(), zertifikat.fingerabdruck(der)
+        except (OSError, ssl.SSLError) as e:
+            raise VerbindungFehler("TLS-Server nicht erreichbar; keine Daten übertragen.") from e
+
+    def zertifikat_bestaetigen(self, erwarteter_fingerabdruck: str) -> None:
+        """Karşılaştırma sunucudaki ekrandan yapılır; ağdan gelen iz tek başına kanıt değildir."""
+        pem, fp = self.zertifikat_lesen()
+        if not hmac.compare_digest(fp, erwarteter_fingerabdruck.strip().upper()):
+            raise ZertifikatFehler("Zertifikat stimmt nicht mit dem Fingerabdruck am Hauptrechner überein. "
+                                   "Keine Daten übertragen.")
+        self.cert_pem = pem
+        self.fingerabdruck = fp
+
     @property
     def lokal(self) -> bool:
         host = self.adresse.split("//", 1)[-1].rsplit(":", 1)[0]
         return host in ("127.0.0.1", "localhost", "::1") or host.lower() == socket.gethostname().lower()
 
     def _http(self, pfad: str, meta: dict | None, body: bytes, signiert: bool, timeout: float | None = None):
+        if not self.cert_pem:
+            raise ZertifikatFehler("Server-Zertifikat nicht bestätigt. Bitte den Fingerabdruck am Hauptrechner "
+                                   "vergleichen, bevor Sie sich anmelden.")
         meta_roh = base64.urlsafe_b64encode(dumps(meta or {})).decode() if meta else ""
         kopf = {"Content-Type": "application/octet-stream"}
         if meta_roh:
@@ -666,7 +737,14 @@ class Verbindung:
                              "X-Signatur": _signatur(self.schluessel, pfad, self.zaehler, meta_roh, body)})
             req = urllib.request.Request(self.adresse + pfad, data=body, headers=kopf, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
+                ctx = ssl.create_default_context(cadata=self.cert_pem.decode("ascii"))
+                ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+                ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+                # IP değişikliklerinde ad yerine onaylanmış tam sertifika ve parmak izi doğrulanır.
+                ctx.check_hostname = False
+                opener = urllib.request.build_opener(_PinHandler(ctx, self.fingerabdruck),
+                                                    urllib.request.ProxyHandler({}), _KeineWeiterleitung())
+                with opener.open(req, timeout=timeout or self.timeout) as r:
                     return r.read(), dict(r.headers)
             except urllib.error.HTTPError as e:
                 return e.read(), dict(e.headers)
@@ -1036,11 +1114,17 @@ def suchen(wartezeit: float = 2.0) -> list[dict]:
             schluessel = f"{d.get('rechner')}:{d.get('port')}"
             haupt = d.get("ip") or ip
             eintrag = gefunden.setdefault(schluessel, {
-                "adresse": f"http://{haupt}:{d.get('port')}", "ip": haupt, "alternativen": [],
+                "adresse": f"https://{haupt}:{d.get('port')}", "ip": haupt, "alternativen": [],
                 "kanzlei": d.get("kanzlei") or "", "rechner": d.get("rechner") or "", "version": d.get("version") or ""})
-            alt = f"http://{ip}:{d.get('port')}"
+            alt = f"https://{ip}:{d.get('port')}"
             if alt != eintrag["adresse"] and alt not in eintrag["alternativen"]:
                 eintrag["alternativen"].append(alt)
+            # Aynı bilgisayardaki sunucu yalnızca loopback dinliyor olabilir;
+            # LAN adresi bu durumda erişilemez. Uzak sunucuya loopback verilmez.
+            if d.get("rechner", "").lower() == socket.gethostname().lower():
+                loopback = f"https://127.0.0.1:{d.get('port')}"
+                if loopback != eintrag["adresse"] and loopback not in eintrag["alternativen"]:
+                    eintrag["alternativen"].append(loopback)
     finally:
         s.close()
     return sorted(gefunden.values(), key=lambda x: (x["kanzlei"], x["rechner"]))

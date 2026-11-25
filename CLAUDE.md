@@ -8,7 +8,7 @@ Bu dosya Claude Code için proje talimatıdır. Her oturumun başında okunur.
 Amacı avukatın tekrar eden yazışma işlerini tek ekrandan, birkaç tıklamayla yapmaktır.
 Program zamanla büyüyecek; her yeni iş ayrı bir **iş akışı (workflow) modülü** olarak eklenecek.
 
-Mevcut sürüm: `version.py` dosyasına bakın (`main`: 0.2.0 yayımlı; `v0.3.0-entwicklung`: 0.3.0; yerel `v0.4.0-pdf`: 0.4.0). Değişiklikler `CHANGELOG.md` dosyasında.
+Mevcut sürüm: `version.py` dosyasına bakın (0.4.3 = ilk kullanıma alınan sürüm, `main` + GitHub Release; 2026-11-25). Değişiklikler `CHANGELOG.md` dosyasında. Lisans: AGPL-3.0 (`LICENSE`).
 
 ## 2. Dil ve iletişim
 
@@ -66,6 +66,18 @@ core/                   ortak servisler – iş akışları bunları kullanır, 
   docx_schreiben.py     Word'süz basit .docx (Anlagenverzeichnis)  [saf Python]
   outlook_eingang.py    gelen kutusu arama, .msg kaydetme        [COM]
   eingang_service.py    gelen e-postayı kaydetme + günlüğe yazma
+  stammdaten.py         Mandanten/Versicherungen (M-Nr., birden fazla Akte, e-postalar = Adressbuch)
+  archiv.py             Dokumentenarchiv (Akte, tür, zamanlar, köken)
+  sicherung.py          yedekleme/geri yükleme (SQLite backup API, doğrulama, çökme sonrası geri alma)
+  word_dokument.py      Word belge işlemleri, PDF→Word arbeitskopie, koruma uyarıları
+  fehlertexte.py        COM hatalarını anlaşılır Almanca mesaja çevirir; ayrıntı yalnızca günlüğe
+  vorschau_logik.py     önizleme raster/döndürme + sayfa görüntü önbelleği  [saf Python]
+  netz.py               0.4.2 çok kullanıcı: Server (stdlib HTTP + TLS), Verbindung (istemci, sertifika sabitleme),
+                        Arbeitskopien, ağda keşif (UDP); challenge-response giriş, imzalı istekler
+  zertifikat.py         0.4.3: kendi ürettiği RSA-2048 + X.509 sertifika (yalnızca stdlib), parmak izi, kontrol kodu
+  benutzer.py           kullanıcılar/roller (PBKDF2), yetki kontrolü
+  protokoll.py          Änderungsverlauf + eşzamanlı değişiklik çakışması
+  nachrichten.py        büro içi mesajlaşma (sunucu tarafı)
 workflows/
   base.py               AppContext(cfg, kanzlei_store, journal, adressbuch), Workflow, Field, Result
   __init__.py           ALL_WORKFLOWS kaydı
@@ -78,6 +90,15 @@ ui/
   pdf_editor.py         „PDF bearbeiten“ (QDialog; Word→PDF akışından ve Anlagen'den de açılır)
   anlagen_tab.py        Anlagen-Assistent sekmesi (ilk açılışta yüklenir) + Kontrollansicht
   pdf_ui.py             ortak: görüntü, arka plan işi (Tesseract), AnhangVorschau (Outlook öncesi ek önizlemesi)
+  stammdaten_tab.py     Mandanten / Versicherungen sayfaları
+  dokument_editor.py    Word'de düzenleme (tarihli kopya, dosya kapanınca önizleme yenilenir)
+  hover_vorschau.py     fareyle büyük önizleme
+  netz_ui.py            ağ ayarları, bağlanma (kontrol kodu), giriş, kullanıcı yönetimi, durum çubuğu
+  nachrichten_ui.py     Nachrichten sayfası + bildirim
+  sicherung_ui.py       Sicherung erstellen / wiederherstellen
+  theme.py              açık tema (her zaman açık renk), QSS, Almanca Qt standart diyalogları
+docs/handbuch/          kılavuz üreticileri (erzeugen.py, einrichtung.py) – kişisel üretici bilgisi YAZILMAZ
+docs/CRA/               yalnızca yerel (.gitignore): CRA belgeleri, hersteller.json (ad/e-posta) – GitHub'a gitmez
 ```
 
 ### Workflow sözleşmesi
@@ -145,7 +166,7 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   Tesseract kurulumu UAC ister → `--tesseract-ordner` ile mevcut 5.5.3 kurulumu; GitHub'da kurulum adımı henüz HİÇ
   çalıştırılmadı (ilk koşuda doğrulanmalı). Word eki dahil kabul testi dev + EXE geçti. Lisans listesi:
   `lizenzen/DRITTANBIETER.md` (eksik metinler işaretli).
-- [ ] **Bekliyor:** Proje lisansı kararı, eksik üçüncü taraf lisans metinleri, ardından ilk GitHub derlemesi.
+- [x] Proje lisansı: AGPL-3.0 (proje sahibi, 2026-11-20). İlk GitHub derlemesi 0.4.3 ile (2026-11-25).
 - [x] CRA hazırlığı (yerel, 2026-11-17): `docs/CRA/` 00–06 (Almanca PDF, `docs/CRA/erzeugen.py` ile üretilir),
   CycloneDX 1.6 SBOM (`tools/sbom_erzeugen.py`, şema doğrulandı), kanıtlar `docs/CRA/nachweise/`.
   Teslim ZIP'i: `tools/uebergabe_bauen.py` → `BnX-Raptor-0.4.0-Pilot-win64-<commit>.zip` (+ .sha256), yeni klasöre
@@ -172,6 +193,15 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   dosya pencereleri (AA_DontUseNativeDialogs) + qtbase_de çevirisi. Hata: `sicher_speichern` subset_fonts'u canlı belgede
   çalıştırıyordu → aynı oturumdaki sonraki düzenlemeler aranamaz metin (EXE kabulünde bulundu) → artık kopyada.
   Paketli EXE kabulü (UI Automation, scratchpad `uia/abnahme_exe.py`): akış 2/5/7/8/10 geçti (build ebaaf4c).
+- [x] 0.4.1–0.4.3 (2026-11-18…25): Mandanten/Versicherungen, Dokumentenarchiv, yedekleme/geri yükleme, çok kullanıcı
+  (Server/Client, roller, Änderungsverlauf, çakışma), büro içi mesajlaşma, TLS (kendi sertifikası + sertifika
+  sabitleme). Bağlanırken ana bilgisayardaki 16 haneli kontrol kodu girilir (`zertifikat.bestaetigung_passt`;
+  biçim önemsiz; istemci ekranı kodu bilerek GÖSTERMEZ).
+- [x] 0.4.3 = ilk kullanıma alınan sürüm (2026-11-25, proje sahibinin açık talimatı): `v0.4.0-pdf` → `main`, GitHub
+  Release otomatik. Proje sahibinin kararıyla `docs/CRA/` (ad/e-posta içerir) GitHub'a YÜKLENMEZ; push öncesi dal
+  geçmişinden de çıkarıldı. Kılavuzda kişisel üretici bilgisi yok; güvenlik bildirimi GitHub üzerinden.
+  Bu PC'de Python'un Windows kök deposunda süresi dolmuş kök var → `ocr_bereitstellen.py` yerelde certifi ile
+  çalıştırıldı (GitHub'ı etkilemez). `.venv`'de pymupdf eksikti → PDF testleri atlanıyordu; artık kurulu (159 test).
 - [ ] **Bekliyor:** Gerçek büro testi (`Pilot_0.4.0\BUEROTEST_CHECKLISTE.txt`), ikinci bilgisayar/SmartScreen, bağımsız PDF/A doğrulaması, yeni Outlook.
 - [ ] **Bekliyor:** Harici pilot kanzleiye verme kararı (CRA Md. 3/22, 4/3, 14 – bkz. docs/CRA/00).
 - [ ] **Bekliyor:** Büro pilotu: elle yöntem ile Anlagen-Assistent arasında insanla süre ölçümü.
@@ -212,17 +242,16 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
 - Konu satırına büronun kendi dosya numarası da eklensin mi?
 - Program ileride başka bürolara da verilecek mi? (Lisans ve kurulumu etkiler.)
 
-## 11. Açık kararlar – PDF motoru ve dağıtım lisansı (proje sahibi verecek)
+## 11. Kararlar – PDF motoru ve dağıtım lisansı
 
-Durum 2026-11-17: Faz 0 prototipi onaylandı ve yerelde geçti. **Proje lisansı değiştirilmedi, ücretli lisans alınmadı,
-0.4 kodu GitHub'a yüklenmedi, PyMuPDF/Tesseract içeren EXE dağıtılmadı.** Bu karar verilene kadar öyle kalır.
+Durum 2026-11-25: **BnX-Raptor AGPL-3.0** (proje sahibi, 2026-11-20; `LICENSE`). PyMuPDF/MuPDF AGPL yoluyla kullanılır
+(Artifex ticari lisansı yok). PyMuPDF + Tesseract içeren paket 0.4.3 ile GitHub Release olarak dağıtılır.
 
 | Bileşen | Sürüm | Lisans | Pakete etkisi |
 |---|---|---|---|
-| PyMuPDF (MuPDF) | 2.1 / 1.28.6 | AGPL-3.0 **veya** Artifex ticari lisansı (fiyat yayımlanmıyor, teklif usulü) | +18,6 MB ZIP; `layout`/onnxruntime ve `mupdf-devel` pakete alınmaz |
-| Tesseract | 5.5.3 (resmî Windows kurulumu, SHA-256 doğrulandı) | Apache-2.0 | `ocr\` klasörü 86,5 MB (exe + 33 DLL + deu/tur/eng `tessdata_best` + osd), +45 MB ZIP |
+| PyMuPDF (MuPDF) | 2.1 / 1.28.6 | AGPL-3.0 | +18,6 MB ZIP; `layout`/onnxruntime ve `mupdf-devel` pakete alınmaz |
+| Tesseract | 5.5.x (MSYS2 paketleri, SHA-256 sabit) | Apache-2.0 | `ocr\` klasörü (exe + DLL'ler + deu/tur/eng `tessdata_best` + osd) |
 
-- Öneri (Claude): BnX-Raptor'ı AGPL-3.0 ile lisanslamak (depo zaten açık, maliyet yok). Alternatif: Artifex'ten teklif almak.
-- Tesseract'ın yanında gelen MinGW/MSYS2 DLL'lerinin lisansları (ör. libjbig GPL, libiconv/libintl LGPL, libstdc++ GCC
-  Runtime Exception) dağıtımdan önce tek tek listelenmeli ve `lizenzen\` klasörüne konmalı.
-- Karar bekleyen sorular: (1) proje lisansı, (2) PyMuPDF+Tesseract içeren paketin dağıtımı, (3) 0.4 dalının GitHub'a yüklenmesi.
+- Üçüncü taraf lisansları ve kaynak paketleri: `lizenzen/DRITTANBIETER.md`, pakette `quellcode-drittanbieter\`.
+- Hâlâ açık (hukuki, proje sahibi): VC++ çalışma zamanı dağıtım koşulu, Qt/LGPL ve GCC Runtime Exception teyidi,
+  AGPL kaynak kodu sunumunun genel hukuki kontrolü; CRA üretici bilgileri (posta adresi, destek süresi) OFFEN.
