@@ -853,8 +853,8 @@ class AktenTab(QWidget):
             empf, betreff, text = (self.f_versicherer.currentText().strip(), cfg["betreff_vorlage"],
                                    cfg["mail_text_html"])
         # 0.5: gemeinsame Versandkontrolle (Empfänger ↔ Akte, Anlagen, Metadaten) + feste Kopien + Versandnachweis
-        from .versand_ui import bezeichnung_aus_name, versand_vorbereiten
-        liste = [(p, "", True, bezeichnung_aus_name(p.name)) for p in dateien]
+        from .versand_ui import bezeichnung_aus_name, versand_vorbereiten, versandreihenfolge
+        liste = [(p, "", True, bezeichnung_aus_name(p.name)) for p in versandreihenfolge(dateien)]
         erg = versand_vorbereiten(self, self.ctx, liste, "E-Mail an " + ("Mandant" if an == "mandant" else
                                                                         "Versicherung"),
                                   betreff_bilden(betreff, ref, akte.get("nummer_art", "")), text, akte=ref,

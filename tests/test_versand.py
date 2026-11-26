@@ -202,3 +202,11 @@ def test_versandnachweis_kopien_bestaetigung_und_aenderung(tmp_path):
         assert [x["id"] for x in vs.liste("2026/0815")] == [v2["id"], v["id"]]               # nichts überschrieben
     finally:
         pr.zuruecksetzen(tok)
+
+
+def test_versandreihenfolge_akte_schriftsatz_dann_anlagen():
+    pytest.importorskip("PySide6")
+    from ui.versand_ui import versandreihenfolge
+    ps = [Path(n) for n in ("Anlage_K2.pdf", "Anlage_K3.pdf", "Anlage_K1.pdf", "Erwiderung.docx", "Anlage_K10.pdf")]
+    assert [p.name for p in versandreihenfolge(ps)] == ["Erwiderung.docx", "Anlage_K1.pdf", "Anlage_K2.pdf",
+                                                         "Anlage_K3.pdf", "Anlage_K10.pdf"]

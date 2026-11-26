@@ -31,6 +31,15 @@ STUFE_ART = {"fehler": "fehler", "warnung": "warn", "nicht_geprueft": "warn", "h
 SYMBOL = {"fehler": "✖", "warnung": "⚠", "nicht_geprueft": "◌", "hinweis": "ℹ", "ok": "✓"}
 
 
+def versandreihenfolge(dateien: list[Path]) -> list[Path]:
+    """Akte → E-Mail: zuerst Dateien ohne Anlagennummer (z. B. Schriftsatz) in gewählter Reihenfolge, dann die Anlagen
+    nach Buchstabe und Nummer (K1, K2, K3 …) – unabhängig davon, in welcher Reihenfolge sie im Verlauf stehen."""
+    ohne = [p for p in dateien if not bezeichnung_aus_name(p.name)]
+    mit = sorted((p for p in dateien if bezeichnung_aus_name(p.name)),
+                 key=lambda p: vk.bezeichnung_nummer(bezeichnung_aus_name(p.name)))
+    return ohne + mit
+
+
 def bezeichnung_aus_name(name: str) -> str:
     """„Anlage_K1.pdf“ → „Anlage K1“ (nur wenn eine Anlagennummer erkennbar ist)."""
     stamm = Path(name).stem.replace("_", " ").strip()
