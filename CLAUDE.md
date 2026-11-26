@@ -8,8 +8,8 @@ Bu dosya Claude Code için proje talimatıdır. Her oturumun başında okunur.
 Amacı avukatın tekrar eden yazışma işlerini tek ekrandan, birkaç tıklamayla yapmaktır.
 Program zamanla büyüyecek; her yeni iş ayrı bir **iş akışı (workflow) modülü** olarak eklenecek.
 
-Mevcut sürüm: `version.py` dosyasına bakın (0.4.3 = ilk kullanıma alınan sürüm, `main` + GitHub Release; 0.5.0 yalnızca
-yerel, yayın onayı bekliyor – 2026-11-26). Değişiklikler `CHANGELOG.md` dosyasında. Lisans: AGPL-3.0 (`LICENSE`).
+Mevcut sürüm: `version.py` dosyasına bakın (0.4.3 = ilk kullanıma alınan sürüm; 0.5.0 = `main` + GitHub Release,
+proje sahibinin onayıyla 2026-11-26). Değişiklikler `CHANGELOG.md` dosyasında. Lisans: AGPL-3.0 (`LICENSE`).
 
 ## 2. Dil ve iletişim
 
@@ -214,7 +214,7 @@ COM kısmı otomatik test edilemiyorsa proje sahibine kısa bir **elle test adı
   geçmişinden de çıkarıldı. Kılavuzda kişisel üretici bilgisi yok; güvenlik bildirimi GitHub üzerinden.
   Bu PC'de Python'un Windows kök deposunda süresi dolmuş kök var → `ocr_bereitstellen.py` yerelde certifi ile
   çalıştırıldı (GitHub'ı etkilemez). `.venv`'de pymupdf eksikti → PDF testleri atlanıyordu; artık kurulu (159 test).
-- [x] 0.5.0 (yerel, 2026-11-26; proje sahibinin açık talimatı – 0.4 arayüz dondurmasının istisnası): Posteingang,
+- [x] 0.5.0 (2026-11-26 GitHub Release, proje sahibinin onayı; büro testi en sonda proje sahibince; proje sahibinin açık talimatı – 0.4 arayüz dondurmasının istisnası): Posteingang,
   Aufgaben, Was fehlt?, Versandkontrolle + Versandnachweis. Kabul senaryosu çekirdek düzeyde gerçek TLS sunucusu + iki
   istemciyle (aynı PC, WSL) `tests/test_posteingang_netz.py`. Windows'ta ağ testleri ÇALIŞMIYOR: Avast Web/Mail Shield
   127.0.0.1 dahil TLS'yi araya girerek açıyor (kendi sertifikası) → BnX doğru şekilde reddediyor; istemci artık tarayıcıyı

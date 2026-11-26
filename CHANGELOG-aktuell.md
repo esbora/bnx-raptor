@@ -10,6 +10,7 @@
 - **Versandnachweis** (Akte → Reiter „Versand“): Empfänger, Betreff, Reihenfolge, Prüfsummen und eine feste Kopie jeder angehängten Datei. Status „Entwurf erstellt“, „Versand bestätigt“ (passende E-Mail in Outlook „Gesendete Elemente“ oder ausdrückliche Bestätigung, Quelle sichtbar) und „Versand nicht bestätigt“. Wird ein Original später geändert, bleibt die Versandkopie erhalten und die Änderung wird angezeigt.
 - Büronetz: Passt das vorgelegte Zertifikat nicht, unterscheidet BnX-Raptor jetzt die Ursache – Virenscanner mit HTTPS-Prüfung (z. B. Avast), neues/anderes BnX-Raptor-Zertifikat des Hauptrechners oder fremdes Zertifikat (z. B. Proxy) – und nennt den nächsten Schritt, statt „Server nicht erreichbar“ zu melden. Es werden weiterhin keine Daten übertragen; die Zertifikatsprüfung bleibt unverändert.
 - Sicherung und Wiederherstellung umfassen Posteingang, Aufgaben, erwartete Unterlagen, Versandnachweise und Versandkopien.
+- Korrigiert: Beim E-Mail-Entwurf aus der Akte stehen die Anhänge jetzt immer in der richtigen Reihenfolge – zuerst der Schriftsatz, dann Anlage K1, K2, K3 … (unabhängig von der Reihenfolge im Verlauf).
 
 ## BnX-Raptor 0.4.3
 
