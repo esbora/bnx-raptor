@@ -252,22 +252,40 @@ def aussteller(cert_pem: bytes | str) -> str:
     return ", ".join("=".join(x) for r in d.get("issuer", ()) for x in r)
 
 
+def ursache(aussteller_text: str) -> tuple[str, str]:
+    """Warum passt das vorgelegte Zertifikat nicht? (aus dem Aussteller; reine Regel, ändert nichts an der Prüfung)
+    → ("scanner", Name) | ("bnx", "") – anderes/neues BnX-Raptor-Zertifikat | ("fremd", Aussteller) | ("", "")."""
+    import re as _re
+    text = (aussteller_text or "").lower()
+    if not text:
+        return "", ""
+    for name, muster in SCANNER_MUSTER:
+        if _re.search(muster, text):
+            return "scanner", name
+    if "bnx-raptor" in text:
+        return "bnx", ""
+    return "fremd", aussteller_text
+
+
 def scanner(cert_pem: bytes | str) -> str:
     """Name des Virenscanners/Filters, der die verschlüsselte Verbindung aufbricht und ein eigenes Zertifikat
     vorlegt – oder ''. (Ein solches Zertifikat wird NIE akzeptiert.)"""
-    import re as _re
-    text = aussteller(cert_pem).lower()
-    for name, muster in SCANNER_MUSTER:
-        if _re.search(muster, text):
-            return name
-    return ""
+    art, name = ursache(aussteller(cert_pem))
+    return name if art == "scanner" else ""
 
 
 def scanner_text(name: str) -> str:
-    return (f"{name} prüft die verschlüsselte Verbindung zum Hauptrechner und legt dabei ein eigenes Zertifikat vor. "
-            "BnX-Raptor akzeptiert das aus Sicherheitsgründen nicht – es wurden keine Daten übertragen. Bitte im "
-            "Virenscanner eine Ausnahme für BnX-Raptor einrichten (z. B. „HTTPS-Prüfung/Web-Schutz: Ausnahme für "
-            "BnX-Raptor.exe“ oder für den Hauptrechner, Port 47310), dann erneut verbinden.")
+    text = (f"{name} prüft auf diesem PC offenbar die verschlüsselte Verbindung zum Hauptrechner und legt dabei ein "
+            "eigenes Zertifikat vor. BnX-Raptor akzeptiert das aus Sicherheitsgründen nicht – es wurden keine Daten "
+            "übertragen. ")
+    if name == "Avast":
+        text += ("Abhilfe (Avast-Hilfe „Exclude certain files or websites from scanning“): ☰ Menü ▸ Einstellungen ▸ "
+                 "Allgemein ▸ Ausnahmen ▸ Ausnahme hinzufügen ▸ Datei/Ordner: BnX-Raptor.exe – auf dem Hauptrechner "
+                 "und auf diesem PC. Avast dokumentiert nicht ausdrücklich, ob das auch die HTTPS-Prüfung umfasst: "
+                 "danach erneut verbinden; erscheint diese Meldung weiter, bitte die IT bzw. den Avast-Support fragen. ")
+    else:
+        text += "Bitte im Virenscanner eine Ausnahme für BnX-Raptor.exe einrichten (ggf. mit der IT) und erneut verbinden. "
+    return text + "Den Virenscanner nicht abschalten."
 
 
 def details(cert_pem: bytes | str) -> dict:

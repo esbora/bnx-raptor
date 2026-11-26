@@ -689,9 +689,18 @@ class _PinHandler(urllib.request.HTTPSHandler):
 
 def zertifikat_meldung(pem: bytes | str) -> str:
     """Deutlicher Text, wenn das vorgelegte Zertifikat nicht das bestätigte ist (nie akzeptiert)."""
-    name = zertifikat.scanner(pem) if pem else ""
-    if name:
+    art, name = zertifikat.ursache(zertifikat.aussteller(pem)) if pem else ("", "")
+    if art == "scanner":
         return zertifikat.scanner_text(name)
+    if art == "bnx":
+        return ("Der Hauptrechner legt ein anderes BnX-Raptor-Zertifikat vor als beim Verbinden bestätigt (z. B. "
+                "Hauptrechner neu eingerichtet, Datenordner gewechselt oder unter dieser Adresse läuft ein anderer "
+                "BnX-Raptor-Server). Keine Daten übertragen. Bitte am Hauptrechner unter Einstellungen → Netzwerk den "
+                "Kontrollcode ablesen und über „Andere Kanzlei / Adresse…“ neu verbinden.")
+    if art == "fremd":
+        return (f"Unter dieser Adresse antwortet ein fremdes Zertifikat (Aussteller: {name}) – z. B. ein Proxy, eine "
+                "Firewall mit HTTPS-Prüfung oder ein Virenscanner. Keine Daten übertragen. Bitte mit der IT klären, "
+                "dass die Verbindung zum Hauptrechner (Port 47310) nicht aufgebrochen wird.")
     return ("Server-Zertifikat geändert oder ungültig – keine Daten übertragen. Bitte am Hauptrechner unter "
             "Einstellungen → Netzwerk den Kontrollcode prüfen und neu verbinden.")
 

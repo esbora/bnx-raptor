@@ -34,12 +34,13 @@ versuchen. Hilft das nicht: Windows-Firewall am Hauptrechner (siehe A3).
 Formular und sind nicht gespeichert. Sobald der Hauptrechner wieder da ist, wird
 automatisch gespeichert. Hat jemand dasselbe Feld inzwischen geändert, zeigt BnX-Raptor
 beide Fassungen zum Vergleich.
-•  „… prüft die verschlüsselte Verbindung …“: Ein Virenscanner (z. B. Avast-Web-Schutz)
-bricht die Verbindung auf. Es wird nichts übertragen. Im Virenscanner eine Ausnahme für BnX-
-Raptor.exe bzw. den Hauptrechner (Port 47310) einrichten – am Hauptrechner und an jedem
-Arbeitsplatz.
-•  Outlook-Entwürfe, Word-Umwandlung und Texterkennung laufen an dem PC, an dem
+•  „… prüft … die verschlüsselte Verbindung …“ (nur falls diese Meldung erscheint): Ein
+Virenscanner (beobachtet: Avast mit Web-Schutz) legt ein eigenes Zertifikat vor; es wird nichts
+übertragen. Avast: ☰ Menü ▸ Einstellungen ▸ Allgemein ▸ Ausnahmen ▸ Ausnahme hinzufügen ▸
+Datei/Ordner: BnX-Raptor.exe auf den betroffenen PCs, dann erneut verbinden. Hilft das nicht:
+IT bzw. Avast-Support. Virenscanner nicht abschalten.
 
+•  Outlook-Entwürfe, Word-Umwandlung und Texterkennung laufen an dem PC, an dem
 gearbeitet wird.
 Die Verbindung im Büronetz ist mit TLS verschlüsselt. Der Hauptrechner erzeugt dafür einmalig
 ein eigenes Zertifikat. Beim ersten Verbinden eines Arbeitsplatzes wird der Kontrollcode vom

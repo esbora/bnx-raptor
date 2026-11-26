@@ -414,3 +414,15 @@ def test_virenscanner_zertifikat_wird_erkannt_aber_nie_akzeptiert():
     # das Scanner-Zertifikat passt nie zum bestätigten Kontrollcode
     assert not zertifikat.bestaetigung_passt(zertifikat.fingerabdruck(fremd),
                                             zertifikat.kurz(zertifikat.fingerabdruck(eigenes)))
+
+
+def test_zertifikat_ursachen_werden_unterschieden():
+    from core import zertifikat
+    assert zertifikat.ursache("CN=Avast Web/Mail Shield Self-signed Root, O=Avast Web/Mail Shield") == ("scanner",
+                                                                                                        "Avast")
+    assert zertifikat.ursache("O=BnX-Raptor, CN=BnX-Raptor Server PC-2") == ("bnx", "")
+    assert zertifikat.ursache("CN=Proxy CA, O=Muster IT")[0] == "fremd"
+    eigenes, _ = zertifikat.zertifikat_erzeugen("Neuer-Hauptrechner", [])
+    t = netz.zertifikat_meldung(eigenes)
+    assert "anderes BnX-Raptor-Zertifikat" in t and "Kontrollcode" in t
+    assert "Den Virenscanner nicht abschalten" in zertifikat.scanner_text("Avast")
